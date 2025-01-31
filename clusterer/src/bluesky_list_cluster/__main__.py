@@ -11,13 +11,17 @@ def main():
     args = args.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+    # Do not show httpx logs
+    logging.getLogger('httpx').setLevel(logging.WARNING)
 
     clustering = BlueskyListCluster(
         args.config,
         args.list_uri,
     )
-    clustering.update_all()
-    clustering.close()
+    try:
+        clustering.update_all()
+    finally:
+        clustering.close()
 
 
 if __name__ == "__main__":
