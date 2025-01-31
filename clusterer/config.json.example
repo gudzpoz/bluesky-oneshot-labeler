@@ -1,0 +1,8 @@
+{
+  "user": "bsky.app <your user handle here>",
+  "password": "<create an app password and put it here>",
+  "session_file": "bsky_cluster.session",
+  "cache_db": "bsky_cluster.db",
+  "max_followers": 10000,
+  "depth": 2
+}
