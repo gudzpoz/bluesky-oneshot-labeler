@@ -3,9 +3,11 @@ import itertools
 import json
 import logging
 import sqlite3
+import typing
 from pathlib import Path
 
-from atproto import Client, models
+from atproto import Client
+from atproto_client.models import AppBskyActorDefs, AppBskyGraphGetList, AppBskyGraphDefs
 
 
 _logger = logging.getLogger(__name__)
@@ -71,7 +73,8 @@ class BlueskyListCluster(Client):
                 following_did TEXT,
                 PRIMARY KEY (follower_did, following_did)
             )
-            '''
+            ''',
+            'CREATE INDEX IF NOT EXISTS followed_by_index ON follow_graph (following_did)',
         ]
         for statement in statements:
             self.cache_db.execute(statement)
@@ -86,10 +89,10 @@ class BlueskyListCluster(Client):
 
     def _update_list(self, uri: str):
         cursor: str | None = None
-        items: list[models.AppBskyGraphDefs.ListItemView] = []
+        items: list[AppBskyGraphDefs.ListItemView] = []
         cached_size = self._get_cached_list_size(uri)
         while True:
-            part = self.app.bsky.graph.get_list(models.AppBskyGraphGetList.Params(
+            part = self.app.bsky.graph.get_list(AppBskyGraphGetList.Params(
                 list=uri,
                 cursor=cursor,
                 limit=50,
@@ -102,27 +105,7 @@ class BlueskyListCluster(Client):
             items.extend(part.items)
             if cursor is None:
                 break
-
-        existent_dids: set[str] = set()
-        for batch in itertools.batched(items, 512):
-            c = self.cache_db.execute(f'''SELECT did FROM user WHERE did IN ({
-                ",".join(["?"] * len(batch))
-            })''', [u.subject.did for u in batch])
-            existent_dids.update(row[0] for row in c.fetchall())
-
-        for user in items:
-            did = user.subject.did
-            if did in existent_dids:
-                self.cache_db.execute(
-                    'UPDATE user SET display_name = ?, description = ?, depth = 0 WHERE did = ?',
-                    (user.subject.display_name, user.subject.description, did),
-                )
-            else:
-                self.cache_db.execute(
-                    'INSERT INTO user (did, handle, display_name, description, follower_count, following_count, depth) '
-                    'VALUES (?, ?, ?, ?, ?, ?, 0)',
-                    (did, user.subject.handle, user.subject.display_name, user.subject.description, -1, -1),
-                )
+        self._save_users([item.subject for item in items], 0)
 
         if cached_size is None:
             self.cache_db.execute('INSERT INTO list_uri (did, fetched) VALUES (?, ?)', (uri, len(items)))
@@ -130,14 +113,109 @@ class BlueskyListCluster(Client):
             self.cache_db.execute('UPDATE list_uri SET fetched = ? WHERE did = ?', (len(items), uri))
         self.cache_db.commit()
 
+    def _get_existent_dids(self, dids: list[str]) -> list[str]:
+        c = self.cache_db.execute(f'''SELECT did FROM user WHERE did IN ({
+            ",".join(["?"] * len(dids))
+        })''', dids)
+        return [row[0] for row in c.fetchall()]
+
+    def _save_users(self, users: list[AppBskyActorDefs.ProfileView] | list[AppBskyActorDefs.ProfileViewDetailed], depth: int):
+        existent_dids: set[str] = set()
+        for batch in itertools.batched(users, 512):
+            existent_dids.update(self._get_existent_dids([u.did for u in batch]))
+
+        for user in users:
+            did = user.did
+            if did in existent_dids:
+                self.cache_db.execute(
+                    'UPDATE user SET display_name = ?, description = ?, depth = ? WHERE did = ? AND depth >= ?',
+                    (user.display_name, user.description, depth, did, depth),
+                )
+            else:
+                self.cache_db.execute(
+                    'INSERT INTO user (did, handle, display_name, description, follower_count, following_count, depth) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (did, user.handle, user.display_name, user.description, -1, -1, depth),
+                )
+        self.cache_db.commit()
+
+    def _get_followship(
+            self,
+            method: typing.Literal['following', 'followers'],
+            did: str,
+            depth: int,
+        ) -> list[AppBskyActorDefs.ProfileView]:
+        users: list[AppBskyActorDefs.ProfileView] = []
+        user: AppBskyActorDefs.ProfileView | None = None
+        cursor: str | None = None
+        while True:
+            if method == 'followers':
+                res = self.get_followers(did, cursor, limit=100)
+                next_users = res.followers
+            else:
+                res = self.get_follows(did, cursor, limit=100)
+                next_users = res.follows
+            user = res.subject
+            cursor = res.cursor
+            if cursor is None:
+                break
+            self._save_users(next_users, depth + 1)
+            users.extend(next_users)
+        assert user is not None
+        return users
+
+    def _update_old_users(self):
+        dids: set[str] = set()
+        c = self.cache_db.execute('SELECT DISTINCT follower_did FROM follow_graph')
+        dids.update(row[0] for row in c)
+        c = self.cache_db.execute('SELECT DISTINCT following_did FROM follow_graph')
+        dids.update(row[0] for row in c)
+
+        missing_dids: list[str] = []
+        for batch in itertools.batched(dids, 512):
+            missing_dids.extend(set(batch) - set(self._get_existent_dids(list(batch))))
+
+        for batch in itertools.batched(missing_dids, 25):
+            users = self.get_profiles(list(batch)).profiles
+            self._save_users(users, 1)
+
     def _update_users(self):
         c = self.cache_db.execute(
-            'SELECT did FROM user WHERE follower_count = -1 OR following_count = -1 AND depth <= ?',
+            'SELECT did, depth FROM user WHERE follower_count = -1 OR following_count = -1 AND depth <= ?',
             (self.config.depth,),
         )
         for rows in itertools.batched(c, 25):
             dids = [row[0] for row in rows]
+            did_depths = dict(rows)
             users = self.get_profiles(dids).profiles
+            for user in users:
+                followers_count = user.followers_count
+                if followers_count is None or followers_count > self.config.max_followers:
+                    # Probably an account like @bsky.app that gets followed by everyone
+                    continue
+                follows_count = user.follows_count
+                if follows_count is None or follows_count > self.config.max_followers:
+                    # A follow bot?
+                    continue
+                depth = did_depths[user.did]
+                following = self._get_followship('following', user.did, depth)
+                self.cache_db.executemany(
+                    'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
+                    [
+                        (user.did, f.did)
+                        for f in following
+                    ],
+                )
+                self.cache_db.commit()
+                followers = self._get_followship('followers', user.did, depth)
+                self.cache_db.executemany(
+                    'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
+                    [
+                        (f.did, user.did)
+                        for f in followers
+                    ],
+                )
+                self.cache_db.commit()
             self.cache_db.executemany(
                 'UPDATE user SET follower_count = ?, following_count = ? WHERE did = ?',
                 [
@@ -152,8 +230,12 @@ class BlueskyListCluster(Client):
         for list_uri in self.list_uris:
             self._update_list(list_uri)
 
-        _info('Updating all users')
-        self._update_users()
+        _info('Updating old users')
+        self._update_old_users()
+
+        for i in range(self.config.depth):
+            _info('Updating users at depth %d', i + 1)
+            self._update_users()
 
     def close(self):
         self.cache_db.close()
