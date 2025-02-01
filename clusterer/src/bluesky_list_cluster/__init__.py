@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import itertools
 import json
 import logging
@@ -7,8 +8,18 @@ import threading
 import typing
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 from atproto import Client
-from atproto_client.models import AppBskyActorDefs, AppBskyGraphGetList, AppBskyGraphDefs
+from atproto_client.models import (
+    AppBskyActorDefs, AppBskyGraphGetList, AppBskyGraphDefs,
+    ComAtprotoRepoCreateRecord,
+)
+
+from sknetwork.data import Dataset, from_edge_list
+from sknetwork.ranking import PageRank
+from sknetwork.visualization import visualize_graph
 
 
 _logger = logging.getLogger(__name__)
@@ -31,6 +42,10 @@ class Config:
     password: str
     session_file: str
     cache_db: str
+    output_csv: str
+    page_rank_damping: float
+    rank_threshold: float
+    rate_limit: int
     max_followers: int
     depth: int
 
@@ -43,11 +58,15 @@ class Config:
 class BlueskyListCluster(Client):
     config: Config
 
+    config_dir: Path
+
+    user: AppBskyActorDefs.ProfileViewDetailed
+
     cache_db: sqlite3.Connection
 
     db_lock: threading.Lock
 
-    list_uri: list[str]
+    list_uris: list[str]
 
     def __init__(self, config_file: str, list_uris: list[str]) -> None:
         super().__init__()
@@ -55,6 +74,7 @@ class BlueskyListCluster(Client):
         config = Config.load(config_file)
         self.config = config
         config_dir = Path(config_file).parent
+        self.config_dir = config_dir
         session_file = config_dir / config.session_file
         if session_file.exists():
             with open(session_file, 'r') as f:
@@ -64,6 +84,7 @@ class BlueskyListCluster(Client):
             with open(session_file, 'w') as f:
                 f.write(self.export_session_string())
         _info('Logged in as %s', user.handle)
+        self.user = user
         self.cache_db = sqlite3.connect(config_dir / config.cache_db, check_same_thread=False)
         self.db_lock = threading.Lock()
         self._init_cache_db()
@@ -298,6 +319,65 @@ class BlueskyListCluster(Client):
         for depth in range(self.config.depth):
             _info('Updating users at depth %d', depth)
             self._update_users(depth)
+
+    def rank_all(self):
+        in_list_dids: set[str] = set(row[0] for row in self.cache_db.execute(
+            'SELECT DISTINCT did FROM user WHERE depth = 0',
+        ))
+        graph = typing.cast(Dataset, from_edge_list(
+            self.cache_db.execute('SELECT follower_did, following_did FROM follow_graph').fetchall(),
+            directed=False,
+        ))
+        adjacency = graph.adjacency
+        dids = graph.names
+        weights: dict[int, float] = {}
+        for i, did in enumerate(dids):
+            weights[i] = 1.0 if did in in_list_dids else 0.1
+        page_rank = PageRank(damping_factor=self.config.page_rank_damping)
+        page_rank.fit(adjacency, weights=weights)
+        scores = page_rank.predict()
+
+        indices = np.argsort(scores)[::-1]
+        scores = scores[indices]
+        dids = np.array(dids)[indices]
+        info = {
+            row[0]: row[1:]
+            for row in self.cache_db.execute('SELECT did, depth, handle, display_name, description FROM user')
+        }
+        df = pd.DataFrame(
+            [(score, *info[did], did) for score, did in zip(scores, dids)],
+            columns=['score', 'depth', 'handle', 'name', 'description', 'did'],
+        )
+        df.to_csv(self.config.output_csv, index=False)
+        return list(dids[np.logical_and(
+            scores > self.config.rank_threshold,
+            df['depth'] != 0,
+        )])
+
+    def _add_one_to_list(self, did: str, wait_group: threading.Semaphore):
+        try:
+            record = ComAtprotoRepoCreateRecord.Data(
+                collection='app.bsky.graph.listitem',
+                repo=self.user.did,
+                record={
+                    '$type': 'app.bsky.graph.listitem',
+                    'createdAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'list': self.list_uris[0],
+                    'subject': did,
+                },
+            )
+            self.com.atproto.repo.create_record(record)
+        finally:
+            wait_group.release()
+
+    def add_to_list(self, dids: list[str]):
+        wait_group = threading.Semaphore(25)
+        for batch in logged_batch('Adding candids to list', dids[:self.config.rate_limit], 25):
+            for did in batch:
+                wait_group.acquire()
+                threading.Thread(target=self._add_one_to_list, args=(did, wait_group)).start()
+        for _ in range(25):
+            wait_group.acquire()
 
     def close(self):
         self.cache_db.close()

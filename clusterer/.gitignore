@@ -1,6 +1,7 @@
 # Bluesky cache
 *.db
 *.session
+*.csv
 config.json
 
 # Byte-compiled / optimized / DLL files

@@ -8,6 +8,7 @@ def main():
     args = argparse.ArgumentParser()
     args.add_argument('list_uri', nargs='+')
     args.add_argument('-c', '--config', type=str, default='./config.json')
+    args.add_argument('-u', '--update', action='store_true')
     args = args.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,11 @@ def main():
     )
     try:
         clustering.update_all()
+        dids = clustering.rank_all()
+        if args.update:
+            clustering.add_to_list(dids)
+        else:
+            logging.info('List candidates: %d', len(dids))
     finally:
         clustering.close()
 
