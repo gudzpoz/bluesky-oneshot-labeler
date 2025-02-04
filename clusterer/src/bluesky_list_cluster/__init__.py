@@ -5,7 +5,9 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 import typing
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -19,11 +21,13 @@ from atproto_client.models import (
 
 from sknetwork.data import Dataset, from_edge_list
 from sknetwork.ranking import PageRank
-from sknetwork.visualization import visualize_graph
 
 
 _logger = logging.getLogger(__name__)
+_debug = _logger.debug
 _info = _logger.info
+_warn = _logger.warning
+# _logger.setLevel(logging.DEBUG)
 
 
 T = typing.TypeVar('T')
@@ -34,6 +38,15 @@ def logged_batch(msg: str, iterable: list[T], batch_size: int = 100):
         _info(f'{msg} ({i}/{size})')
         i += len(batch)
         yield batch
+
+
+def logged_batch_wait(msg: str, tasks: list[Future], batch_size: int = 10):
+    for batch in logged_batch(msg, tasks, batch_size):
+        results = wait(batch, None, 'FIRST_EXCEPTION')
+        for result in results.done:
+            e = result.exception()
+            if e is not None:
+                raise e
 
 
 @dataclasses.dataclass
@@ -135,17 +148,21 @@ class BlueskyListCluster(Client):
             if len(items) == 0:
                 if part.list.list_item_count == cached_size:
                     # No new items
+                    _debug('No new items in list %s (size: %d == %d)', uri, part.list.list_item_count, cached_size)
                     return
+                _debug('New items in list %s (size: %d != %d)', uri, part.list.list_item_count, cached_size)
+                cached_size = part.list.list_item_count
             cursor = part.cursor
             items.extend(part.items)
             if cursor is None:
                 break
+        _debug('Fetched %d items from list %s', len(items), uri)
         self._save_users([item.subject for item in items], 0)
 
         if cached_size is None:
-            self.cache_db.execute('INSERT INTO list_uri (did, fetched) VALUES (?, ?)', (uri, len(items)))
+            self.cache_db.execute('INSERT INTO list_uri (did, fetched) VALUES (?, ?)', (uri, cached_size))
         else:
-            self.cache_db.execute('UPDATE list_uri SET fetched = ? WHERE did = ?', (len(items), uri))
+            self.cache_db.execute('UPDATE list_uri SET fetched = ? WHERE did = ?', (cached_size, uri))
         self.cache_db.commit()
 
     def _get_existent_dids(self, dids: list[str]) -> list[str]:
@@ -184,20 +201,29 @@ class BlueskyListCluster(Client):
         user: AppBskyActorDefs.ProfileView | None = None
         cursor: str | None = None
         while True:
-            if method == 'followers':
-                res = self.get_followers(did, cursor, limit=100)
-                next_users = res.followers
+            for i in range(3): # retry 3 times
+                try:
+                    if method == 'followers':
+                        res = self.get_followers(did, cursor, limit=100)
+                        next_users = res.followers
+                    else:
+                        res = self.get_follows(did, cursor, limit=100)
+                        next_users = res.follows
+                    break
+                except Exception as e:
+                    _warn('Retrying (%d/3) due to %s', i + 1, e)
+                    time.sleep(1)
             else:
-                res = self.get_follows(did, cursor, limit=100)
-                next_users = res.follows
+                raise Exception('Failed to get %s of %s', method, did)
             user = res.subject
             cursor = res.cursor
+            users.extend(next_users)
             if cursor is None:
                 break
             with self.db_lock:
                 self._save_users(next_users, depth + 1)
-            users.extend(next_users)
         assert user is not None
+        _debug('Followship (%s) for %s: %d users', method, did, len(users))
         return users
 
     def _update_old_users(self):
@@ -215,74 +241,84 @@ class BlueskyListCluster(Client):
             users = self.get_profiles(list(batch)).profiles
             self._save_users(users, 1)
 
+        _info('Purge old users')
+        self.cache_db.execute(
+            'UPDATE user SET following_count = -1 '
+            'WHERE 0 < following_count AND following_count < ? AND did NOT IN (SELECT DISTINCT follower_did FROM follow_graph)',
+            (self.config.max_followers,),
+        )
+        self.cache_db.execute(
+            'UPDATE user SET follower_count = -1 '
+            'WHERE 0 < follower_count AND follower_count < ? AND did NOT IN (SELECT DISTINCT following_did FROM follow_graph)',
+            (self.config.max_followers,),
+        )
+        self.cache_db.commit()
+
     def _fetch_followship(
             self,
             user: AppBskyActorDefs.ProfileViewDetailed,
             depth: int,
-            wait_group: threading.Semaphore,
+            counts: tuple[int, int]
         ):
-        try:
-            followers_count = user.followers_count
-            if followers_count is None or followers_count > self.config.max_followers:
-                # Probably an account like @bsky.app that gets followed by everyone
-                return
-            follows_count = user.follows_count
-            if follows_count is None or follows_count > self.config.max_followers:
-                # A follow bot?
-                return
-            if follows_count > 0:
-                following = self._get_followship('following', user.did, depth)
-                with self.db_lock:
-                    self.cache_db.executemany(
-                        'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
-                        [
-                            (user.did, f.did)
-                            for f in following
-                        ],
-                    )
-                    self.cache_db.commit()
-            if followers_count > 0:
-                followers = self._get_followship('followers', user.did, depth)
-                with self.db_lock:
-                    self.cache_db.executemany(
-                        'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
-                        [
-                            (f.did, user.did)
-                            for f in followers
-                        ],
-                    )
-                    self.cache_db.commit()
-        finally:
-            wait_group.release()
-
-    def _fetch_all_followship(self, users: list[AppBskyActorDefs.ProfileViewDetailed], depth: int):
-        wait_group = threading.Semaphore(len(users))
-        for user in users:
-            wait_group.acquire()
-            threading.Thread(
-                target=self._fetch_followship,
-                args=(user, depth, wait_group),
-            ).start()
-        for _ in users:
-            wait_group.acquire()
+        record_followers, record_following = counts
+        followers_count = user.followers_count
+        if followers_count is None or followers_count > self.config.max_followers:
+            # Probably an account like @bsky.app that gets followed by everyone
+            pass
+        elif followers_count > 0 and record_followers == -1:
+            followers = self._get_followship('followers', user.did, depth)
+            with self.db_lock:
+                self.cache_db.executemany(
+                    'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
+                    [
+                        (f.did, user.did)
+                        for f in followers
+                    ],
+                )
+                self.cache_db.commit()
+        follows_count = user.follows_count
+        if follows_count is None or follows_count > self.config.max_followers:
+            # A follow bot?
+            pass
+        elif follows_count > 0 and record_following == -1:
+            following = self._get_followship('following', user.did, depth)
+            with self.db_lock:
+                self.cache_db.executemany(
+                    'INSERT OR IGNORE INTO follow_graph (follower_did, following_did) VALUES (?, ?)',
+                    [
+                        (user.did, f.did)
+                        for f in following
+                    ],
+                )
+                self.cache_db.commit()
+        with self.db_lock:
+            _debug(
+                'Updating user info for %s (%d, %d) from (%d, %d)',
+                user.did, user.followers_count, user.follows_count, record_followers, record_following,
+            )
+            self.cache_db.execute(
+                'UPDATE user SET follower_count = ?, following_count = ? WHERE did = ?',
+                (user.followers_count or 0, user.follows_count or 0, user.did),
+            )
+            self.cache_db.commit()
 
     def _update_users(self, depth: int):
         c = self.cache_db.execute(
-            'SELECT did FROM user WHERE (follower_count = -1 OR following_count = -1) AND depth = ?',
+            'SELECT did, follower_count, following_count FROM user WHERE (follower_count = -1 OR following_count = -1) AND depth = ?',
             (depth,),
         )
-        for rows in logged_batch('Fetching follow graph', c.fetchall(), 25):
-            dids = [row[0] for row in rows]
-            users = self.get_profiles(dids).profiles
-            self._fetch_all_followship(users, depth)
-            self.cache_db.executemany(
-                'UPDATE user SET follower_count = ?, following_count = ? WHERE did = ?',
-                [
-                    (u.followers_count, u.follows_count, u.did)
-                    for u in users
-                ],
-            )
-            self.cache_db.commit()
+        with ThreadPoolExecutor(10) as executor:
+            tasks: list[Future] = []
+            for rows in logged_batch('Fetching user profiles', c.fetchall(), 25):
+                dids = [row[0] for row in rows]
+                did_counts = {row[0]: (row[1], row[2]) for row in rows}
+                users = self.get_profiles(dids).profiles
+                for user in users:
+                    tasks.append(executor.submit(self._fetch_followship, user, depth, did_counts[user.did]))
+                if len(tasks) >= 100:
+                    logged_batch_wait('Fetching user followships', tasks)
+                    tasks = []
+            logged_batch_wait('Fetching user followships', tasks)
         self._update_depth(depth)
 
     def _update_depth(self, depth: int):
@@ -354,30 +390,25 @@ class BlueskyListCluster(Client):
             df['depth'] != 0,
         )])
 
-    def _add_one_to_list(self, did: str, wait_group: threading.Semaphore):
-        try:
-            record = ComAtprotoRepoCreateRecord.Data(
-                collection='app.bsky.graph.listitem',
-                repo=self.user.did,
-                record={
-                    '$type': 'app.bsky.graph.listitem',
-                    'createdAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                    'list': self.list_uris[0],
-                    'subject': did,
-                },
-            )
-            self.com.atproto.repo.create_record(record)
-        finally:
-            wait_group.release()
+    def _add_one_to_list(self, did: str):
+        record = ComAtprotoRepoCreateRecord.Data(
+            collection='app.bsky.graph.listitem',
+            repo=self.user.did,
+            record={
+                '$type': 'app.bsky.graph.listitem',
+                'createdAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                'list': self.list_uris[0],
+                'subject': did,
+            },
+        )
+        self.com.atproto.repo.create_record(record)
 
     def add_to_list(self, dids: list[str]):
-        wait_group = threading.Semaphore(25)
-        for batch in logged_batch('Adding candids to list', dids[:self.config.rate_limit], 25):
-            for did in batch:
-                wait_group.acquire()
-                threading.Thread(target=self._add_one_to_list, args=(did, wait_group)).start()
-        for _ in range(25):
-            wait_group.acquire()
+        with ThreadPoolExecutor(max_workers=25) as executor:
+            tasks: list[Future] = []
+            for did in dids[:self.config.rate_limit]:
+                tasks.append(executor.submit(self._add_one_to_list, did))
+            logged_batch_wait('Adding candids to list', tasks)
 
     def close(self):
         self.cache_db.close()
