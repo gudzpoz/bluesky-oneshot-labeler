@@ -1,5 +1,8 @@
 # Temporary files
 session.json
+*.db
+*.db-shm
+*.db-wal
 
 # Binaries for programs and plugins
 *.exe

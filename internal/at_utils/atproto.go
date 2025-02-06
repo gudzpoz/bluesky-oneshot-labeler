@@ -1,6 +1,7 @@
 package at_utils
 
 import (
+	"bluesky-oneshot-labeler/internal/config"
 	"context"
 	"os"
 
@@ -21,11 +22,11 @@ func IsRegularFile(path string) bool {
 
 func InitXrpcClient(ctx context.Context) error {
 	if !IsRegularFile(sessionFile) {
-		ident, err := syntax.ParseAtIdentifier(os.Getenv("USERNAME"))
+		ident, err := syntax.ParseAtIdentifier(config.Username)
 		if err != nil {
 			return err
 		}
-		session, err := refreshAuthSession(ctx, *ident, os.Getenv("PASSWORD"), "", "")
+		session, err := refreshAuthSession(ctx, *ident, config.Password, "", "")
 		if err != nil {
 			return err
 		}

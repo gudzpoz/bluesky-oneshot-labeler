@@ -1,13 +1,11 @@
 package server
 
 import (
+	"bluesky-oneshot-labeler/internal/config"
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -31,14 +29,14 @@ func New(logger *slog.Logger) *FiberServer {
 	return server
 }
 
-func (s *FiberServer) Run() {
+func (s *FiberServer) Run(ctx context.Context) {
 	s.RegisterFiberRoutes()
 
 	// Create a done channel to signal when the shutdown is complete
 	done := make(chan bool, 1)
 
 	go func() {
-		port, _ := strconv.Atoi(os.Getenv("PORT"))
+		port, _ := strconv.Atoi(config.Port)
 		err := s.Listen(fmt.Sprintf(":%d", port))
 		if err != nil {
 			panic(fmt.Sprintf("http server error: %s", err))
@@ -46,18 +44,14 @@ func (s *FiberServer) Run() {
 	}()
 
 	// Run graceful shutdown in a separate goroutine
-	go s.gracefulShutdown(done)
+	go s.gracefulShutdown(ctx, done)
 
 	// Wait for the graceful shutdown to complete
 	<-done
 	s.log.Info("Graceful shutdown complete.")
 }
 
-func (s *FiberServer) gracefulShutdown(done chan bool) {
-	// Create context that listens for the interrupt signal from the OS.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
+func (s *FiberServer) gracefulShutdown(ctx context.Context, done chan bool) {
 	// Listen for the interrupt signal.
 	<-ctx.Done()
 

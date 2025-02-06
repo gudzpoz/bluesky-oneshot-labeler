@@ -23,6 +23,7 @@
 package at_utils
 
 import (
+	"bluesky-oneshot-labeler/internal/config"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,7 +38,7 @@ import (
 
 var ErrNoAuthSession = errors.New("no auth session found")
 
-var sessionFile = os.Getenv("SESSION_FILE")
+var sessionFile = config.SessionFile
 
 type AuthSession struct {
 	DID          syntax.DID `json:"did"`
