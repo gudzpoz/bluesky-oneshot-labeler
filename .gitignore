@@ -1,3 +1,6 @@
+# Temporary files
+session.json
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
