@@ -7,6 +7,7 @@ import (
 
 	"github.com/bluesky-social/indigo/atproto/identity"
 	"github.com/bluesky-social/indigo/atproto/syntax"
+	"github.com/bluesky-social/indigo/util"
 	"github.com/bluesky-social/indigo/xrpc"
 )
 
@@ -41,6 +42,7 @@ func InitXrpcClient(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	client.Client = util.RobustHTTPClient()
 	Client = client
 	return nil
 }

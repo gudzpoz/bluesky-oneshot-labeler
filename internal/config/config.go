@@ -1,10 +1,25 @@
 package config
 
 import (
+	"log"
 	"os"
+	"strconv"
 
 	_ "github.com/joho/godotenv/autoload"
 )
+
+func getEnvInt(s string) int {
+	s = os.Getenv(s)
+	if s == "" {
+		log.Fatalf("Environment variable %s is not set", s)
+		return 0
+	}
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		log.Fatalf("Environment variable %s is not a valid integer: %v", s, err)
+	}
+	return i
+}
 
 var (
 	Username = os.Getenv("USERNAME")
@@ -13,8 +28,7 @@ var (
 	DatabaseFile = os.Getenv("DATABASE_FILE")
 	SessionFile  = os.Getenv("SESSION_FILE")
 
-	Port = os.Getenv("PORT")
+	Port = getEnvInt("PORT")
 
-	BlockThreshold    = os.Getenv("BLOCK_THRESHOLD")
-	OffenderThreshold = os.Getenv("OFFENDER_THRESHOLD")
+	OffenderThreshold = getEnvInt("OFFENDER_THRESHOLD")
 )

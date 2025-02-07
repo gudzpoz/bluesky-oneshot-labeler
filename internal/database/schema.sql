@@ -1,18 +1,18 @@
 CREATE TABLE config (key text PRIMARY KEY, value text);
 
-CREATE TABLE user_stats (
-  user_id integer PRIMARY KEY AUTOINCREMENT,
-  kind integer,
-  did text,
-  count integer
+CREATE TABLE user (
+  uid integer PRIMARY KEY AUTOINCREMENT,
+  did text not null
 );
 
-CREATE UNIQUE INDEX blocked_user_did_per_kind ON user_stats (kind, did);
+CREATE UNIQUE INDEX user_did ON user (did);
 
-CREATE TABLE blocked_user (
+CREATE TABLE block_list (
   id integer PRIMARY KEY AUTOINCREMENT,
-  user_id integer,
-  created_at timestamp
+  uid integer not null,
+  kind integer not null,
+  cts integer not null,
+  count integer not null
 );
 
-CREATE UNIQUE INDEX blocked_user_id ON blocked_user (user_id);
+CREATE UNIQUE INDEX block_list_uid_kind ON block_list (uid, kind);

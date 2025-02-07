@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -36,7 +35,7 @@ func (s *FiberServer) Run(ctx context.Context) {
 	done := make(chan bool, 1)
 
 	go func() {
-		port, _ := strconv.Atoi(config.Port)
+		port := config.Port
 		err := s.Listen(fmt.Sprintf(":%d", port))
 		if err != nil {
 			panic(fmt.Sprintf("http server error: %s", err))

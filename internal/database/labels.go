@@ -1,37 +1,45 @@
 package database
 
-func (s *Service) IncrementCounter(kind int, did string) (int, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
+import (
+	"fmt"
+	"strings"
+)
 
-	_, err = tx.Exec(
-		"INSERT OR IGNORE INTO user_stats (kind, did, count) VALUES (?, ?, 0)",
-		kind, did,
+func (s *Service) prepareIncrementCounter() error {
+	stmt, err := s.db.Prepare(
+		"INSERT INTO user (did) VALUES (?)" +
+			" ON CONFLICT (did) DO UPDATE uid = uid RETURNING uid",
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
+	s.insertUserStmt = stmt
 
-	var count int
-	err = tx.QueryRow(
-		"UPDATE user_stats SET count = count + 1 WHERE kind = ? AND did = ? RETURNING count",
-		kind, did,
-	).Scan(&count)
+	stmt, err = s.db.Prepare(
+		"INSERT INTO user (uid, kind, cts, count) VALUES (?, ?, ?, 1)" +
+			" ON CONFLICT (uid, kind) DO UPDATE SET count = count + 1" +
+			" RETURNING count",
+	)
 	if err != nil {
-		return 0, err
+		return err
 	}
+	s.incrementCounterStmt = stmt
 
-	return count, tx.Commit()
+	return nil
 }
 
-func (s *Service) BlockUser(kind int, did string, unixMillis int64) error {
-	_, err := s.db.Exec(
-		"INSERT OR IGNORE INTO blocked_user (user_id, created_at) VALUES"+
-			" ((SELECT user_id FROM user_stats WHERE kind = ? AND did = ?), ?)",
-		kind, did, unixMillis,
-	)
-	return err
+func (s *Service) GetUserId(did string) (int64, error) {
+	if !strings.HasPrefix(did, "did:") {
+		return 0, fmt.Errorf("invalid did: %s", did)
+	}
+	did = did[4:]
+	var id int64
+	err := s.insertUserStmt.QueryRow(did).Scan(&id)
+	return id, err
+}
+
+func (s *Service) IncrementCounter(uid int64, kind int, unixMillis int64) (int64, error) {
+	var count int64
+	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis).Scan(&count)
+	return count, err
 }

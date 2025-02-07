@@ -18,6 +18,9 @@ import (
 type Service struct {
 	db  *sql.DB
 	log *slog.Logger
+
+	insertUserStmt       *sql.Stmt
+	incrementCounterStmt *sql.Stmt
 }
 
 var dbInstance *Service
@@ -33,16 +36,20 @@ func Init(logger *slog.Logger) error {
 	if url == ":memory:" {
 		initDb = true
 	} else {
-		url = "file:" + url + "?cache=shared&mode=rwc&_journal=WAL"
 		if _, err := os.Stat(url); os.IsNotExist(err) {
 			initDb = true
 		}
+		url = "file:" + url + "?mode=rwc&_journal=WAL&_timeout=5000"
 	}
 
 	db, err := sql.Open("sqlite3", url)
 	if err != nil {
 		return err
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
 
 	dbInstance = &Service{
 		db:  db,
@@ -58,6 +65,12 @@ func Init(logger *slog.Logger) error {
 	if err = dbInstance.upgrade(); err != nil {
 		return err
 	}
+
+	err = dbInstance.prepareIncrementCounter()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -115,11 +128,34 @@ func (s *Service) GetConfig(key string, defaultValue string) (string, error) {
 }
 
 func (s *Service) SetConfig(key string, value string) error {
-	_, err := s.db.Exec("DELETE FROM config WHERE key = ?", key)
-	if err == nil {
-		_, err = s.db.Exec("INSERT INTO config (key, value) VALUES (?, ?)", key, value)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
 	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec("DELETE FROM config WHERE key = ?", key)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec("INSERT INTO config (key, value) VALUES (?, ?)", key, value)
 	return err
+}
+
+func (s *Service) GetConfigInt(key string, defaultValue int64) (int64, error) {
+	valueStr, err := s.GetConfig(key, "")
+	if err != nil {
+		return 0, err
+	}
+	if valueStr == "" {
+		return defaultValue, nil
+	}
+	return strconv.ParseInt(valueStr, 10, 64)
+}
+
+func (s *Service) SetConfigInt(key string, value int64) error {
+	return s.SetConfig(key, strconv.FormatInt(value, 10))
 }
 
 // Health checks the health of the database connection by pinging the database.
