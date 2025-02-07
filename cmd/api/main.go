@@ -41,6 +41,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	err = at_utils.InitKeys()
+	if err != nil {
+		logger.Error("failed to init keys", "err", err)
+		os.Exit(1)
+	}
+
 	err = at_utils.InitXrpcClient(startupCtx)
 	if err != nil {
 		logger.Error("failed to init xrpc client", "err", err)
@@ -53,13 +59,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = subscription.Listen(background)
-	if err != nil {
-		logger.Error("listener error", "err", err)
-		os.Exit(1)
-	}
-
 	server := server.New(logger)
-	server.Run(background)
 
+	done := start(background, subscription, server)
+	<-done
+
+}
+
+func start(ctx context.Context, subscription *listener.LabelListener, server *server.FiberServer) chan bool {
+	serverDone := server.Run(ctx)
+	listenerDone := subscription.Listen(ctx)
+
+	done := make(chan bool)
+
+	go func() {
+		<-listenerDone
+		<-serverDone
+		done <- true
+	}()
+
+	return done
 }

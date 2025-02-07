@@ -33,6 +33,7 @@ const (
 	LabelSexual
 	LabelNudity
 	LabelGraphicMedia
+	LabelOthers
 	LabelOffender
 )
 
@@ -50,7 +51,7 @@ type LabelListener struct {
 }
 
 func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener, error) {
-	labeler, _ := syntax.ParseHandle("moderation.bsky.app")
+	labeler, _ := syntax.ParseHandle(config.UpstreamUser)
 	ident, err := at_utils.IdentityDirectory.LookupHandle(ctx, labeler)
 	if err != nil {
 		return nil, err
@@ -66,7 +67,7 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 		return nil, err
 	}
 
-	logger.Debug("moderation.bsky.app", "ident", ident)
+	logger.Debug(config.UpstreamUser, "ident", ident)
 	for _, value := range ident.Services {
 		if value.Type == "AtprotoLabeler" {
 			u, err := url.Parse(value.URL)
@@ -113,7 +114,28 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 	return nil, fmt.Errorf("labeler service not found")
 }
 
-func (l *LabelListener) Listen(ctx context.Context) error {
+func (l *LabelListener) Listen(ctx context.Context) chan bool {
+	done := make(chan bool)
+	go func() {
+		for {
+			l.log.Info("connecting in 1 second")
+			select {
+			case <-ctx.Done():
+				l.log.Info("context done, listening stopped")
+				done <- true
+				return
+			case <-time.After(1 * time.Second):
+				if err := l.listen(ctx); err != nil {
+					l.log.Error("failed to listen", "err", err)
+				}
+				l.log.Info("websocket disconnected")
+			}
+		}
+	}()
+	return done
+}
+
+func (l *LabelListener) listen(ctx context.Context) error {
 	u, _ := url.Parse("wss://example.com/xrpc/com.atproto.label.subscribeLabels")
 	u.Host = l.serverUrl.Host
 	u.RawQuery = fmt.Sprintf("cursor=%d", l.cursor.Load())
@@ -164,7 +186,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 
 		when, err := time.Parse(time.RFC3339, label.Cts)
 		if err != nil {
-			when = time.Now()
+			when = time.Now().UTC()
 		}
 		whenMillis := when.UnixMilli()
 
@@ -238,6 +260,8 @@ func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]in
 			m[policy.Identifier] = LabelSexual
 		} else if policy.Blurs != "none" {
 			m[policy.Identifier] = LabelGraphicMedia
+		} else {
+			m[policy.Identifier] = LabelOthers
 		}
 	}
 	return m

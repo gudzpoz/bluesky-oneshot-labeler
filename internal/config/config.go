@@ -25,6 +25,8 @@ var (
 	Username = os.Getenv("USERNAME")
 	Password = os.Getenv("PASSWORD")
 
+	UpstreamUser = os.Getenv("UPSTREAM_USER")
+
 	DatabaseFile = os.Getenv("DATABASE_FILE")
 	SessionFile  = os.Getenv("SESSION_FILE")
 

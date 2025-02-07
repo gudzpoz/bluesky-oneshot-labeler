@@ -28,7 +28,7 @@ func New(logger *slog.Logger) *FiberServer {
 	return server
 }
 
-func (s *FiberServer) Run(ctx context.Context) {
+func (s *FiberServer) Run(ctx context.Context) chan bool {
 	s.RegisterFiberRoutes()
 
 	// Create a done channel to signal when the shutdown is complete
@@ -45,9 +45,7 @@ func (s *FiberServer) Run(ctx context.Context) {
 	// Run graceful shutdown in a separate goroutine
 	go s.gracefulShutdown(ctx, done)
 
-	// Wait for the graceful shutdown to complete
-	<-done
-	s.log.Info("Graceful shutdown complete.")
+	return done
 }
 
 func (s *FiberServer) gracefulShutdown(ctx context.Context, done chan bool) {
