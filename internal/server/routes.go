@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bluesky-oneshot-labeler/internal/config"
+
+	"github.com/bluesky-social/indigo/xrpc"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -16,16 +19,22 @@ func (s *FiberServer) RegisterFiberRoutes() {
 		MaxAge:           300,
 	}))
 
-	s.App.Get("/", s.HelloWorldHandler)
+	s.App.Get("/", s.HomeHandler)
 	s.App.Get("/xrpc/com.atproto.label.queryLabels", s.QueryLabelsHandler)
 	s.App.Get("/xrpc/com.atproto.label.subscribeLabels", websocket.New(s.SubscribeLabelsHandler))
-
+	s.App.Get("/xrpc/*", s.NotImplementedHandler)
 }
 
-func (s *FiberServer) HelloWorldHandler(c *fiber.Ctx) error {
-	resp := fiber.Map{
-		"message": "Hello World",
-	}
+func (s *FiberServer) HomeHandler(c *fiber.Ctx) error {
+	return c.Render("views/home", fiber.Map{
+		"Upstream": config.UpstreamUser,
+		"User":     config.Username,
+	})
+}
 
-	return c.JSON(resp)
+func (s *FiberServer) NotImplementedHandler(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusNotImplemented).JSON(xrpc.XRPCError{
+		ErrStr:  "MethodNotImplemented",
+		Message: "Method not implemented",
+	})
 }

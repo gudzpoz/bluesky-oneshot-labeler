@@ -5,11 +5,14 @@ import (
 	"bluesky-oneshot-labeler/internal/database"
 	"bluesky-oneshot-labeler/internal/listener"
 	"context"
+	"embed"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/template/html/v2"
 )
 
 type FiberServer struct {
@@ -21,11 +24,17 @@ type FiberServer struct {
 	notifier *LabelNotifier
 }
 
+//go:embed views/*
+var viewsFs embed.FS
+
 func New(upstream *listener.LabelListener, logger *slog.Logger) *FiberServer {
+	engine := html.NewFileSystem(http.FS(viewsFs), ".html")
+
 	server := &FiberServer{
 		App: fiber.New(fiber.Config{
 			ServerHeader: "bluesky-oneshot-labeler",
 			AppName:      "bluesky-oneshot-labeler",
+			Views:        engine,
 		}),
 		db:  database.Instance(),
 		log: logger,

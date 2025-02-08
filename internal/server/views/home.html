@@ -1,0 +1,22 @@
+<html>
+  <head>
+    <title>Oneshot Labeler for {{.Upstream}}</title>
+  </head>
+  <body>
+    <h1>Oneshot Labeler</h1>
+    <p>
+      This website hosts a simple
+      <a href="https://docs.bsky.app/docs/advanced-guides/moderation#labelers">Bluesky labeler</a>
+      available at <a href="https://bsky.app/profile/{{.User}}">@{{.User}}</a>.
+    </p>
+    <h2>What It Does</h2>
+    <p>
+      Basically, it reads the labels from
+      <a href="https://bsky.app/profile/{{.Upstream}}">@{{.Upstream}}</a>,
+      which mostly does <strong>post-wise moderation</strong>.
+      For every bad post, it marks the user of that post as a bad actor
+      and labels them as such on a <strong>user-wise basis</strong>.
+      Check out <a href="https://bsky.app/profile/{{.User}}">{{.User}}</a> for more info.
+    </p>
+  </body>
+</html>
