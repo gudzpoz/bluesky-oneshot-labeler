@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 )
@@ -18,7 +19,7 @@ func (s *Service) prepareIncrementCounter() error {
 	stmt, err = s.db.Prepare(
 		"INSERT INTO block_list (uid, kind, cts, count) VALUES (?, ?, ?, 1)" +
 			" ON CONFLICT (uid, kind) DO UPDATE SET count = count + 1" +
-			" RETURNING count",
+			" RETURNING id, count",
 	)
 	if err != nil {
 		return err
@@ -38,10 +39,15 @@ func (s *Service) GetUserId(did string) (int64, error) {
 	return id, err
 }
 
-func (s *Service) IncrementCounter(uid int64, kind int, unixMillis int64) (int64, error) {
-	var count int64
-	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis).Scan(&count)
-	return count, err
+type Pair struct {
+	Id    int64
+	Count int64
+}
+
+func (s *Service) IncrementCounter(uid int64, kind int, unixMillis int64) (Pair, error) {
+	var id, count int64
+	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis).Scan(&id, &count)
+	return Pair{id, count}, err
 }
 
 type QueryLabelsInput struct {
@@ -108,4 +114,24 @@ func (s *Service) QueryLabels(input *QueryLabelsInput) ([]Label, error) {
 	}
 
 	return results, nil
+}
+
+func (s *Service) LatestLabelId() (int64, error) {
+	var id int64
+	err := s.db.QueryRow("SELECT id FROM block_list ORDER BY id DESC LIMIT 1").Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return id, err
+}
+
+func (s *Service) QueryLabelsSince(id int64) (*sql.Rows, error) {
+	rows, err := s.db.Query(
+		"SELECT id, u.did, kind, cts FROM block_list l"+
+			" JOIN user u ON l.uid = u.uid"+
+			" WHERE id > ?"+
+			" ORDER BY id ASC",
+		id,
+	)
+	return rows, err
 }

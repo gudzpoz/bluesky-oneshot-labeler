@@ -48,6 +48,8 @@ type LabelListener struct {
 	counter atomic.Int64
 
 	offenderThreshold int64
+
+	notifier func(*database.Label)
 }
 
 func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener, error) {
@@ -158,6 +160,10 @@ func (l *LabelListener) listen(ctx context.Context) error {
 	return err
 }
 
+func (l *LabelListener) SetNotifier(notifier func(*database.Label)) {
+	l.notifier = notifier
+}
+
 func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStreamEvent) error {
 	labels := event.LabelLabels
 	if labels == nil {
@@ -190,30 +196,36 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 		whenMillis := when.UnixMilli()
 
-		count, err := l.db.IncrementCounter(uid, kind, whenMillis)
+		info, err := l.db.IncrementCounter(uid, kind, whenMillis)
 		if err != nil {
 			l.log.Warn("failed to increment counter", "kind", kind, "did", did, "err", err)
 			continue
 		}
 
 		var notify bool
-		if count == 1 {
+		if info.Count == 1 {
 			notify = true
-		} else if count == l.offenderThreshold {
-			_, err := l.db.IncrementCounter(uid, LabelOffender, whenMillis)
+		} else if info.Count == l.offenderThreshold {
+			info, err = l.db.IncrementCounter(uid, LabelOffender, whenMillis)
 			if err != nil {
 				l.log.Warn("failed to increment offender counter", "did", did, "err", err)
 			}
 			notify = true
+			kind = LabelOffender
 		} else {
 			notify = false
 		}
 
 		if notify {
-			// TODO: Notify websockets: newly blocked users
+			l.notifier(&database.Label{
+				Id:   info.Id,
+				Did:  strings.TrimPrefix(did, "did:"),
+				Kind: kind,
+				Cts:  whenMillis,
+			})
 		}
 	}
-	l.cursor.Store(labels.Seq)
+	at_utils.StoreLarger(&l.cursor, labels.Seq)
 	l.counter.Add(1)
 	return nil
 }

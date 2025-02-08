@@ -59,7 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := server.New(logger)
+	server := server.New(subscription, logger)
 
 	done := start(background, subscription, server)
 	<-done

@@ -2,6 +2,8 @@ package server
 
 import (
 	"bluesky-oneshot-labeler/internal/config"
+	"bluesky-oneshot-labeler/internal/database"
+	"bluesky-oneshot-labeler/internal/listener"
 	"context"
 	"fmt"
 	"log/slog"
@@ -13,16 +15,22 @@ import (
 type FiberServer struct {
 	*fiber.App
 
+	db  *database.Service
 	log *slog.Logger
+
+	notifier *LabelNotifier
 }
 
-func New(logger *slog.Logger) *FiberServer {
+func New(upstream *listener.LabelListener, logger *slog.Logger) *FiberServer {
 	server := &FiberServer{
 		App: fiber.New(fiber.Config{
 			ServerHeader: "bluesky-oneshot-labeler",
 			AppName:      "bluesky-oneshot-labeler",
 		}),
+		db:  database.Instance(),
 		log: logger,
+
+		notifier: NewLabelNotifier(upstream, logger.WithGroup("notifier")),
 	}
 
 	return server
