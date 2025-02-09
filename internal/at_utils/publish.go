@@ -76,15 +76,15 @@ func PublishLabelerInfo(ctx context.Context) error {
 	}
 	pubKeyStr := pubKey.DIDKey()
 
-	var alsoKnownAs []string
+	var alsoKnownAs []any
 	if value, ok := credentials["alsoKnownAs"]; ok {
-		if alsoKnownAs, ok = value.([]string); !ok {
+		if alsoKnownAs, ok = value.([]any); !ok {
 			return fmt.Errorf("alsoKnownAs is not a string array: %T", value)
 		}
 	}
-	var rotationKeys []string
+	var rotationKeys []any
 	if value, ok := credentials["rotationKeys"]; ok {
-		if rotationKeys, ok = value.([]string); !ok {
+		if rotationKeys, ok = value.([]any); !ok {
 			return fmt.Errorf("rotationKeys is not a string array: %T", value)
 		}
 	}
@@ -133,8 +133,8 @@ func PublishLabelerInfo(ctx context.Context) error {
 
 	input := atproto.IdentitySignPlcOperation_Input{
 		Token:        &plcToken,
-		AlsoKnownAs:  alsoKnownAs,
-		RotationKeys: rotationKeys,
+		AlsoKnownAs:  asStringSlice(alsoKnownAs),
+		RotationKeys: asStringSlice(rotationKeys),
 		Services: &lex_util.LexiconTypeDecoder{
 			Val: &mapWrapper{inner: services},
 		},
@@ -234,6 +234,14 @@ func PublishLabelInfo(ctx context.Context) error {
 	}
 
 	return err
+}
+
+func asStringSlice(s []any) []string {
+	var ret []string
+	for _, v := range s {
+		ret = append(ret, v.(string))
+	}
+	return ret
 }
 
 func IsRecordNotFound(err error) bool {
