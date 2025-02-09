@@ -34,4 +34,8 @@ var (
 	Port = getEnvInt("PORT")
 
 	OffenderThreshold = getEnvInt("OFFENDER_THRESHOLD")
+
+	Socks5 = os.Getenv("SOCKS5")
+
+	PlcToken = os.Getenv("PLC_TOKEN")
 )

@@ -15,6 +15,7 @@ import (
 	"github.com/bluesky-social/indigo/util"
 	"github.com/bluesky-social/indigo/util/labels"
 	"github.com/bluesky-social/indigo/xrpc"
+	"golang.org/x/net/proxy"
 
 	_ "github.com/bluesky-social/indigo/atproto/data"
 	_ "github.com/bluesky-social/indigo/repo"
@@ -22,6 +23,7 @@ import (
 
 var AtProtoVersion int64 = 1
 var IdentityDirectory = DefaultDirectory()
+var BaseDirectory *identity.BaseDirectory
 var Client *xrpc.Client
 var UserDid syntax.DID
 var KeyP256 *crypto.PrivateKeyP256
@@ -30,9 +32,20 @@ func DefaultDirectory() identity.Directory {
 	dir := identity.DefaultDirectory()
 	inner := dir.(*identity.CacheDirectory).Inner
 	base := inner.(*identity.BaseDirectory)
+	BaseDirectory = base
 	// workaround: "DID method not supported: "
 	base.SkipDNSDomainSuffixes = []string{}
 	base.HTTPClient.Transport = http.DefaultTransport
+
+	socks5 := config.Socks5
+	if socks5 != "" {
+		dialer, err := proxy.SOCKS5("tcp", socks5, nil, proxy.Direct)
+		if err != nil {
+			panic(err)
+		}
+		http.DefaultTransport.(*http.Transport).DialContext = dialer.(proxy.ContextDialer).DialContext
+	}
+
 	return dir
 }
 

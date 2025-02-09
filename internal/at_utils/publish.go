@@ -26,7 +26,7 @@ const (
 )
 
 func requestPlcToken(ctx context.Context) (string, error) {
-	token := os.Getenv("PLC_TOKEN")
+	token := config.PlcToken
 	if token != "" {
 		return token, nil
 	}
@@ -65,6 +65,36 @@ func PublishLabelerInfo(ctx context.Context) error {
 		return err
 	}
 	pubKeyStr := pubKey.DIDKey()
+
+	ident, err := BaseDirectory.ResolveDID(ctx, UserDid)
+	if err != nil {
+		return err
+	}
+
+	keyExists := false
+	for _, vm := range ident.VerificationMethod {
+		fmt.Println(vm.PublicKeyMultibase)
+		fmt.Println(pubKeyStr)
+		if vm.PublicKeyMultibase == strings.TrimPrefix(pubKeyStr, "did:key:") {
+			keyExists = true
+			break
+		}
+		splits := strings.Split(vm.ID, "#")
+		if len(splits) == 2 && splits[1] == "atproto_label" {
+			return fmt.Errorf("verificationMethods[atproto_label] already exists: %s", vm.PublicKeyMultibase)
+		}
+	}
+	serviceExists := false
+	for _, service := range ident.Service {
+		if service.Type == "AtprotoLabeler" && service.ServiceEndpoint == "https://"+config.Host {
+			serviceExists = true
+			break
+		}
+	}
+	if keyExists && serviceExists {
+		slog.Info("Labeler info already published")
+		return nil
+	}
 
 	var alsoKnownAs []any
 	if value, ok := credentials["alsoKnownAs"]; ok {
