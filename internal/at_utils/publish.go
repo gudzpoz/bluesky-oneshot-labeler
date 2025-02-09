@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/api/bsky"
-	"github.com/bluesky-social/indigo/atproto/data"
 	lex_util "github.com/bluesky-social/indigo/lex/util"
 	"github.com/bluesky-social/indigo/xrpc"
 )
@@ -27,8 +25,13 @@ const (
 	LabelOthersString       = "others"
 )
 
-func requestPlcToken() (string, error) {
-	err := atproto.IdentityRequestPlcOperationSignature(context.Background(), Client)
+func requestPlcToken(ctx context.Context) (string, error) {
+	token := os.Getenv("PLC_TOKEN")
+	if token != "" {
+		return token, nil
+	}
+
+	err := atproto.IdentityRequestPlcOperationSignature(ctx, Client)
 	if err != nil {
 		return "", err
 	}
@@ -44,19 +47,6 @@ func requestPlcToken() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
-}
-
-type mapWrapper struct {
-	inner map[string]any
-}
-
-func (m *mapWrapper) MarshalCBOR(w io.Writer) error {
-	bytes, err := data.MarshalCBOR(m.inner)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(bytes)
-	return err
 }
 
 func PublishLabelerInfo(ctx context.Context) error {
@@ -126,24 +116,19 @@ func PublishLabelerInfo(ctx context.Context) error {
 		"endpoint": "https://" + config.Host,
 	}
 
-	plcToken, err := requestPlcToken()
+	plcToken, err := requestPlcToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	input := atproto.IdentitySignPlcOperation_Input{
-		Token:        &plcToken,
-		AlsoKnownAs:  asStringSlice(alsoKnownAs),
-		RotationKeys: asStringSlice(rotationKeys),
-		Services: &lex_util.LexiconTypeDecoder{
-			Val: &mapWrapper{inner: services},
-		},
-		VerificationMethods: &lex_util.LexiconTypeDecoder{
-			Val: &mapWrapper{inner: verificationMethods},
-		},
-	}
-
 	// Again, we have to manually construct the request.
+	input := map[string]any{
+		"token":               plcToken,
+		"alsoKnownAs":         alsoKnownAs,
+		"rotationKeys":        rotationKeys,
+		"services":            services,
+		"verificationMethods": verificationMethods,
+	}
 	signed := make(map[string]any)
 	signApi := "com.atproto.identity.signPlcOperation"
 	if err := Client.Do(ctx, xrpc.Procedure, "application/json", signApi, nil, &input, &signed); err != nil {
@@ -234,14 +219,6 @@ func PublishLabelInfo(ctx context.Context) error {
 	}
 
 	return err
-}
-
-func asStringSlice(s []any) []string {
-	var ret []string
-	for _, v := range s {
-		ret = append(ret, v.(string))
-	}
-	return ret
 }
 
 func IsRecordNotFound(err error) bool {

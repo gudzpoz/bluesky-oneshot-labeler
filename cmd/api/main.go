@@ -91,13 +91,13 @@ func closeGlobals() error {
 }
 
 func publishLabeler() error {
-	if err := at_utils.PublishLabelerInfo(startupCtx); err != nil {
+	if err := at_utils.PublishLabelerInfo(background); err != nil {
 		logger.Error("failed to publish labeler", "err", err)
 		return err
 	}
 
-	if err := at_utils.PublishLabelInfo(startupCtx); err != nil {
-		logger.Error("failed to publish labeler", "err", err)
+	if err := at_utils.PublishLabelInfo(background); err != nil {
+		logger.Error("failed to publish label", "err", err)
 		return err
 	}
 

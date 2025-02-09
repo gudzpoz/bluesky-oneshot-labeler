@@ -172,8 +172,3 @@ func refreshAuthSession(ctx context.Context, username syntax.AtIdentifier, passw
 	}
 	return &authSession, nil
 }
-
-func wipeAuthSession() error {
-	fPath := sessionFile
-	return os.Remove(fPath)
-}
