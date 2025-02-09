@@ -19,13 +19,13 @@ func signLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, error
 	var val string
 	switch kind {
 	case listener.LabelPorn:
-		val = listener.LabelPornString
+		val = at_utils.LabelPornString
 	case listener.LabelSexual:
-		val = listener.LabelSexualString
+		val = at_utils.LabelSexualString
 	case listener.LabelNudity:
-		val = listener.LabelNudityString
+		val = at_utils.LabelNudityString
 	case listener.LabelGraphicMedia:
-		val = listener.LabelGraphicMediaString
+		val = at_utils.LabelGraphicMediaString
 	case listener.LabelOffender:
 		val = "offender"
 	default:

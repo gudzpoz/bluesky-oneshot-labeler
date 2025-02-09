@@ -23,7 +23,7 @@ type Service struct {
 var dbInstance *Service
 var databaseFile = config.DatabaseFile
 
-func Init(logger *slog.Logger) error {
+func InitDatabase(logger *slog.Logger) error {
 	url := databaseFile
 	if url == "" {
 		url = ":memory:"
@@ -36,7 +36,7 @@ func Init(logger *slog.Logger) error {
 		if _, err := os.Stat(url); os.IsNotExist(err) {
 			initDb = true
 		}
-		url = "file:" + url + "?mode=rwc&_journal=WAL&_timeout=5000"
+		url = "file:" + url + "?mode=rwc&_journal=WAL&_txlock=immediate&_timeout=5000"
 	}
 
 	db, err := sql.Open("sqlite3", url)
@@ -69,6 +69,12 @@ func Init(logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+func Close() error {
+	err := dbInstance.db.Close()
+	dbInstance = nil
+	return err
 }
 
 func Instance() *Service {

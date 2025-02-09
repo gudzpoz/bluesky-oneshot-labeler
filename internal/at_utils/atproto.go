@@ -15,13 +15,16 @@ import (
 	"github.com/bluesky-social/indigo/util"
 	"github.com/bluesky-social/indigo/util/labels"
 	"github.com/bluesky-social/indigo/xrpc"
+
+	_ "github.com/bluesky-social/indigo/atproto/data"
+	_ "github.com/bluesky-social/indigo/repo"
 )
 
 var AtProtoVersion int64 = 1
 var IdentityDirectory = DefaultDirectory()
 var Client *xrpc.Client
 var UserDid syntax.DID
-var KeyK256 *crypto.PrivateKeyP256
+var KeyP256 *crypto.PrivateKeyP256
 
 func DefaultDirectory() identity.Directory {
 	dir := identity.DefaultDirectory()
@@ -94,7 +97,7 @@ func InitKeys() error {
 	if err != nil {
 		return err
 	}
-	KeyK256 = key
+	KeyP256 = key
 	return nil
 }
 
@@ -103,7 +106,7 @@ func SignLabel(label *labels.UnsignedLabel) (*atproto.LabelDefs_Label, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig, err := KeyK256.HashAndSign(bytes)
+	sig, err := KeyP256.HashAndSign(bytes)
 	if err != nil {
 		return nil, err
 	}

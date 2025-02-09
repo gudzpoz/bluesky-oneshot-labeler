@@ -30,6 +30,7 @@ var (
 	DatabaseFile = os.Getenv("DATABASE_FILE")
 	SessionFile  = os.Getenv("SESSION_FILE")
 
+	Host = os.Getenv("HOST")
 	Port = getEnvInt("PORT")
 
 	OffenderThreshold = getEnvInt("OFFENDER_THRESHOLD")

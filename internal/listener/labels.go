@@ -22,13 +22,6 @@ import (
 )
 
 const (
-	LabelPornString         = "porn"
-	LabelSexualString       = "sexual"
-	LabelNudityString       = "nudity"
-	LabelGraphicMediaString = "graphic-media"
-)
-
-const (
 	LabelPorn = iota
 	LabelSexual
 	LabelNudity
@@ -263,10 +256,10 @@ func (l *LabelListener) persistSeq() error {
 
 func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]int {
 	m := make(map[string]int)
-	m[LabelPornString] = LabelPorn
-	m[LabelSexualString] = LabelSexual
-	m[LabelNudityString] = LabelNudity
-	m[LabelGraphicMediaString] = LabelGraphicMedia
+	m[at_utils.LabelPornString] = LabelPorn
+	m[at_utils.LabelSexualString] = LabelSexual
+	m[at_utils.LabelNudityString] = LabelNudity
+	m[at_utils.LabelGraphicMediaString] = LabelGraphicMedia
 	for _, policy := range policies.LabelValueDefinitions {
 		if policy.AdultOnly != nil && *policy.AdultOnly {
 			m[policy.Identifier] = LabelSexual
