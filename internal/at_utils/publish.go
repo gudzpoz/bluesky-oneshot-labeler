@@ -158,15 +158,18 @@ func PublishLabelInfo(ctx context.Context) error {
 	}
 	trueValue := true
 
+	hide := "hide"
+	warn := "warn"
 	service := bsky.LabelerService{
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		Policies: &bsky.LabelerDefs_LabelerPolicies{
 			LabelValueDefinitions: []*atproto.LabelDefs_LabelValueDefinition{
 				{
-					Identifier: LabelOffenderString,
-					AdultOnly:  &trueValue,
-					Blurs:      "content",
-					Severity:   "alert",
+					Identifier:     LabelOffenderString,
+					AdultOnly:      &trueValue,
+					Blurs:          "content",
+					DefaultSetting: &hide,
+					Severity:       "alert",
 					Locales: []*atproto.LabelDefs_LabelValueDefinitionStrings{
 						{
 							Name:        "Incorrigible",
@@ -176,8 +179,10 @@ func PublishLabelInfo(ctx context.Context) error {
 					},
 				},
 				{
-					Identifier: LabelOthersString,
-					Severity:   "inform",
+					Identifier:     LabelOthersString,
+					Blurs:          "none",
+					DefaultSetting: &warn,
+					Severity:       "inform",
 					Locales: []*atproto.LabelDefs_LabelValueDefinitionStrings{
 						{
 							Name:        "Others",
@@ -191,14 +196,15 @@ func PublishLabelInfo(ctx context.Context) error {
 		},
 	}
 
-	exists, err := labelInfoExists(ctx)
+	prevRecord, err := labelInfoExists(ctx)
 	if err != nil {
 		return err
 	}
-	if exists {
-		_, err = atproto.RepoPutRecord(ctx, Client, &atproto.RepoPutRecord_Input{
+	if prevRecord == "" {
+		self := "self"
+		_, err = atproto.RepoCreateRecord(ctx, Client, &atproto.RepoCreateRecord_Input{
 			Collection: "app.bsky.labeler.service",
-			Rkey:       "self",
+			Rkey:       &self,
 			Repo:       UserDid.String(),
 			Record: &lex_util.LexiconTypeDecoder{
 				Val: &service,
@@ -206,10 +212,10 @@ func PublishLabelInfo(ctx context.Context) error {
 			Validate: &trueValue,
 		})
 	} else {
-		self := "self"
-		_, err = atproto.RepoCreateRecord(ctx, Client, &atproto.RepoCreateRecord_Input{
+		_, err = atproto.RepoPutRecord(ctx, Client, &atproto.RepoPutRecord_Input{
+			SwapRecord: &prevRecord,
 			Collection: "app.bsky.labeler.service",
-			Rkey:       &self,
+			Rkey:       "self",
 			Repo:       UserDid.String(),
 			Record: &lex_util.LexiconTypeDecoder{
 				Val: &service,
@@ -230,7 +236,7 @@ func IsRecordNotFound(err error) bool {
 	return false
 }
 
-func labelInfoExists(ctx context.Context) (bool, error) {
+func labelInfoExists(ctx context.Context) (string, error) {
 	params := map[string]interface{}{
 		"repo":       UserDid.String(),
 		"collection": "app.bsky.labeler.service",
@@ -240,10 +246,10 @@ func labelInfoExists(ctx context.Context) (bool, error) {
 	labelerDetails := bsky.LabelerDefs_LabelerViewDetailed{}
 	if err := Client.Do(ctx, xrpc.Query, "", recordApi, params, nil, &labelerDetails); err != nil {
 		if !IsRecordNotFound(err) {
-			return false, err
+			return "", err
 		}
-		return false, nil
+		return "", nil
 	}
 
-	return true, nil
+	return labelerDetails.Cid, nil
 }
