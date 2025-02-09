@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bluesky-oneshot-labeler/internal/at_utils"
 	"bluesky-oneshot-labeler/internal/config"
 
 	"github.com/bluesky-social/indigo/xrpc"
@@ -20,6 +21,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	}))
 
 	s.App.Get("/", s.HomeHandler)
+	s.App.Get("/.well-known/atproto-did", s.WellKnownHandler)
+	s.App.Get("/xrpc/_health", s.HealthHandler)
 	s.App.Get("/xrpc/com.atproto.label.queryLabels", s.QueryLabelsHandler)
 	s.App.Get("/xrpc/com.atproto.label.subscribeLabels", websocket.New(s.SubscribeLabelsHandler))
 	s.App.Get("/xrpc/*", s.NotImplementedHandler)
@@ -29,6 +32,23 @@ func (s *FiberServer) HomeHandler(c *fiber.Ctx) error {
 	return c.Render("views/home", fiber.Map{
 		"Upstream": config.UpstreamUser,
 		"User":     config.Username,
+	})
+}
+
+func (s *FiberServer) WellKnownHandler(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusOK).Type(fiber.MIMETextPlain).SendString(at_utils.UserDid.String())
+}
+
+func (s *FiberServer) HealthHandler(c *fiber.Ctx) error {
+	var id any
+	id, err := s.db.LatestLabelId()
+	if err != nil {
+		id = "unknown"
+	}
+
+	return c.JSON(fiber.Map{
+		"version": at_utils.AtProtoVersion,
+		"latest":  id,
 	})
 }
 

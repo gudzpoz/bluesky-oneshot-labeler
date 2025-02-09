@@ -1,6 +1,12 @@
-# Project bluesky-oneshot-labeler
+# bluesky-oneshot-labeler
 
-One Paragraph of project description goes here
+Labeling services like [@moderation.bsky.app](https://bsky.app/profile/moderation.bsky.app)
+usually label contents on a per-post basis.
+However, for those who never label their NSFW/sensitive contents,
+it might be best to mark their whole account as not-suitable.
+
+This labeler lets you specify a upstream labeling services,
+and marks the posters of NSFW/sensitive contents as not-suitable.
 
 ## Getting Started
 
