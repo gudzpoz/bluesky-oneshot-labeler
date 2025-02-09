@@ -109,7 +109,6 @@ func (s *Service) upgrade() error {
 	switch ver {
 	case 0:
 		s.log.Debug("No upgrade needed")
-		break
 	default:
 		s.log.Error("Unknown database version", "version", ver)
 		os.Exit(1)
@@ -131,18 +130,12 @@ func (s *Service) GetConfig(key string, defaultValue string) (string, error) {
 }
 
 func (s *Service) SetConfig(key string, value string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("DELETE FROM config WHERE key = ?", key)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec("INSERT INTO config (key, value) VALUES (?, ?)", key, value)
+	s.log.Debug("set config", "key", key, "value", value)
+	_, err := s.db.Exec(
+		"INSERT INTO config (key, value) VALUES (?, ?)"+
+			" ON CONFLICT (key) DO UPDATE SET value = ?",
+		key, value, value,
+	)
 	return err
 }
 

@@ -1,6 +1,6 @@
 module bluesky-oneshot-labeler
 
-go 1.23.5
+go 1.23
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20241231202233-01e4144c9b6d
