@@ -26,8 +26,9 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/xrpc/com.atproto.label.queryLabels", s.QueryLabelsHandler)
 	s.App.Get("/xrpc/com.atproto.label.subscribeLabels", websocket.New(s.SubscribeLabelsHandler))
 	s.App.Get("/xrpc/app.bsky.feed.describeFeedGenerator", s.DescribeFeedGeneratorHandler)
-	s.App.Get("/xrpc/app.bsky.feed.getfeedskeleton", s.GetFeedSkeletonHandler)
-	s.App.Get("/xrpc/*", s.NotImplementedHandler)
+	s.App.Get("/xrpc/app.bsky.feed.getFeedSkeleton", s.GetFeedSkeletonHandler)
+	s.App.Post("/xrpc/com.atproto.moderation.createReport", s.CreateReportHandler)
+	s.App.All("/xrpc/*", s.NotImplementedHandler)
 }
 
 func (s *FiberServer) HomeHandler(c *fiber.Ctx) error {
@@ -55,7 +56,7 @@ func (s *FiberServer) HealthHandler(c *fiber.Ctx) error {
 }
 
 func (s *FiberServer) NotImplementedHandler(c *fiber.Ctx) error {
-	s.log.Debug("not implemented", "path", c.Path())
+	s.log.Debug("not implemented", "method", c.Method(), "path", c.Path())
 	return c.Status(fiber.StatusNotImplemented).JSON(xrpc.XRPCError{
 		ErrStr:  "MethodNotImplemented",
 		Message: "Method not implemented",

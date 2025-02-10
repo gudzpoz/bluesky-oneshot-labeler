@@ -71,6 +71,7 @@ func (b *BlockListInSync) update() error {
 			did = line[:i]
 		}
 		did = strings.TrimSpace(did)
+		did = strings.Trim(did, `"`)
 		if !strings.HasPrefix(did, "did:") {
 			continue
 		}

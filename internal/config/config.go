@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -19,6 +20,14 @@ func getEnvInt(s string) int {
 		log.Fatalf("Environment variable %s is not a valid integer: %v", s, err)
 	}
 	return i
+}
+
+func getEnvList(s string) []string {
+	list := strings.Split(os.Getenv(s), ",")
+	for i := range list {
+		list[i] = strings.TrimSpace(list[i])
+	}
+	return list
 }
 
 var (
@@ -45,4 +54,6 @@ var (
 	FeedDesc   = os.Getenv("FEED_DESCRIPTION")
 
 	ExternalBlockList = os.Getenv("EXTERNAL_BLOCK_LIST")
+
+	ModeratorHandles = getEnvList("MODERATOR_HANDLES")
 )
