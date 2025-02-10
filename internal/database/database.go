@@ -140,15 +140,19 @@ func (s *Service) upgrade() error {
 
 	switch ver {
 	case 0:
-		try(
-			1,
-			"VACUUM",
+		// Change to incremental vacuum
+		if _, err := s.db.Exec("VACUUM"); err != nil {
+			return err
+		}
+		if err := try(1,
 			`CREATE TABLE feed_list (
 				id integer PRIMARY KEY AUTOINCREMENT,
 				uri text not null,
 				cts integer not null
 			)`,
-		)
+		); err != nil {
+			return err
+		}
 		fallthrough
 	case 1:
 		s.log.Debug("No upgrade needed")
