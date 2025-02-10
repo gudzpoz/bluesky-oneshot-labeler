@@ -70,8 +70,8 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 			Message: err.Error(),
 		})
 	}
-	feed := make([]*bsky.FeedDefs_SkeletonFeedPost, len(items))
-	for i, uri := range items {
+	feed := make([]*bsky.FeedDefs_SkeletonFeedPost, 0, len(items))
+	for _, uri := range items {
 		splits := strings.SplitN(uri, "/", 2)
 		did := splits[0]
 		compactDid := strings.TrimPrefix(did, "did:")
@@ -79,9 +79,10 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 			continue
 		}
 		uri = "at://" + did + "/app.bsky.feed.post/" + splits[1]
-		feed[i] = &bsky.FeedDefs_SkeletonFeedPost{
+		item := &bsky.FeedDefs_SkeletonFeedPost{
 			Post: uri,
 		}
+		feed = append(feed, item)
 	}
 
 	var pointer *string
