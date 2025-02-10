@@ -100,9 +100,6 @@ func (s *Service) PruneEntries(predicate func(string) bool) error {
 	for cursor > 0 {
 		rows, err := s.getFeedItemsStmt.Query(cursor, 500)
 		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil
-			}
 			return err
 		}
 		var uri string
@@ -116,18 +113,20 @@ func (s *Service) PruneEntries(predicate func(string) bool) error {
 			}
 		}
 
-		if len(unwantedIds) != 0 {
-			_, err = s.db.Exec(
-				"DELETE FROM feed_list WHERE id IN (?"+
-					strings.Repeat(",?", len(unwantedIds)-1)+
-					")",
-				unwantedIds...,
-			)
-			if err != nil {
-				return err
-			}
-			unwantedIds = unwantedIds[:0]
+		if len(unwantedIds) == 0 {
+			return nil
 		}
+
+		_, err = s.db.Exec(
+			"DELETE FROM feed_list WHERE id IN (?"+
+				strings.Repeat(",?", len(unwantedIds)-1)+
+				")",
+			unwantedIds...,
+		)
+		if err != nil {
+			return err
+		}
+		unwantedIds = unwantedIds[:0]
 	}
 	return nil
 }

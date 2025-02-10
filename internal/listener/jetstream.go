@@ -147,6 +147,7 @@ loop:
 			if count%100 == 0 {
 				now := time.Now()
 				if now.Sub(last) > 10*time.Minute {
+					lock.Lock()
 					err := l.db.PruneFeedEntries(now.Add(-48 * time.Hour))
 					if err != nil {
 						l.log.Error("failed to prune feed entries", "err", err)
@@ -156,6 +157,7 @@ loop:
 							l.log.Error("failed to vacuum database", "err", err)
 						}
 					}
+					lock.Unlock()
 				}
 			}
 		case <-ctx.Done():
@@ -167,6 +169,7 @@ loop:
 }
 
 func (l *JetstreamListener) PruneBlockedEntries() error {
+	l.log.Debug("pruning blocked entries")
 	return l.db.PruneEntries(func(compactUri string) bool {
 		i := strings.Index(compactUri, "/")
 		if i == -1 {
