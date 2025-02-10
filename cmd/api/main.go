@@ -102,6 +102,11 @@ func publishLabeler() error {
 		return err
 	}
 
+	if err := at_utils.PublishFeedInfo(background); err != nil {
+		logger.Error("failed to publish feed", "err", err)
+		return err
+	}
+
 	return nil
 }
 

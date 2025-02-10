@@ -215,7 +215,7 @@ func PublishLabelInfo(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if prevRecord == "" {
+	if prevRecord == nil {
 		self := "self"
 		_, err = atproto.RepoCreateRecord(ctx, Client, &atproto.RepoCreateRecord_Input{
 			Collection: "app.bsky.labeler.service",
@@ -228,7 +228,7 @@ func PublishLabelInfo(ctx context.Context) error {
 		})
 	} else {
 		_, err = atproto.RepoPutRecord(ctx, Client, &atproto.RepoPutRecord_Input{
-			SwapRecord: &prevRecord,
+			SwapRecord: prevRecord,
 			Collection: "app.bsky.labeler.service",
 			Rkey:       "self",
 			Repo:       UserDid.String(),
@@ -251,7 +251,7 @@ func IsRecordNotFound(err error) bool {
 	return false
 }
 
-func labelInfoExists(ctx context.Context) (string, error) {
+func labelInfoExists(ctx context.Context) (*string, error) {
 	params := map[string]interface{}{
 		"repo":       UserDid.String(),
 		"collection": "app.bsky.labeler.service",
@@ -261,12 +261,12 @@ func labelInfoExists(ctx context.Context) (string, error) {
 	labelerDetails := bsky.LabelerDefs_LabelerViewDetailed{}
 	if err := Client.Do(ctx, xrpc.Query, "", recordApi, params, nil, &labelerDetails); err != nil {
 		if !IsRecordNotFound(err) {
-			return "", err
+			return nil, err
 		}
-		return "", nil
+		return nil, nil
 	}
 
-	return labelerDetails.Cid, nil
+	return &labelerDetails.Cid, nil
 }
 
 func PublishFeedInfo(ctx context.Context) error {
@@ -302,15 +302,39 @@ func PublishFeedInfo(ctx context.Context) error {
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
+	prevRecord, err := feedInfoExists(ctx)
+	if err != nil {
+		return err
+	}
+
 	trueValue := true
 	_, err = atproto.RepoPutRecord(ctx, Client, &atproto.RepoPutRecord_Input{
 		Collection: "app.bsky.feed.generator",
 		Record: &lex_util.LexiconTypeDecoder{
 			Val: &record,
 		},
-		Repo:     UserDid.String(),
-		Rkey:     "oneshot",
-		Validate: &trueValue,
+		Repo:       UserDid.String(),
+		Rkey:       "oneshot",
+		SwapRecord: prevRecord,
+		Validate:   &trueValue,
 	})
 	return err
+}
+
+func feedInfoExists(ctx context.Context) (*string, error) {
+	params := map[string]interface{}{
+		"repo":       UserDid.String(),
+		"collection": "app.bsky.feed.generator",
+		"rkey":       "oneshot",
+	}
+	recordApi := "com.atproto.repo.getRecord"
+	record := bsky.FeedDefs_GeneratorView{}
+	if err := Client.Do(ctx, xrpc.Query, "", recordApi, params, nil, &record); err != nil {
+		if !IsRecordNotFound(err) {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	return &record.Cid, nil
 }
