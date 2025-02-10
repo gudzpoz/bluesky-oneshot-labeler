@@ -37,7 +37,7 @@ func (s *Service) prepareLabelStatements() error {
 	stmt, err = s.db.Prepare(
 		"SELECT id, u.did, kind, cts FROM block_list l" +
 			" JOIN user u ON l.uid = u.uid" +
-			" WHERE id > ?" +
+			" WHERE ? < id AND id <= ?" +
 			" ORDER BY id ASC",
 	)
 	if err != nil {
@@ -144,7 +144,7 @@ func (s *Service) LatestLabelId() (int64, error) {
 	return id, err
 }
 
-func (s *Service) QueryLabelsSince(id int64) (*sql.Rows, error) {
-	rows, err := s.queryLabelsSinceStmt.Query(id)
+func (s *Service) QueryLabelsSince(from int64, to int64) (*sql.Rows, error) {
+	rows, err := s.queryLabelsSinceStmt.Query(from, to)
 	return rows, err
 }

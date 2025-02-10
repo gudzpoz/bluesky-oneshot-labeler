@@ -42,7 +42,7 @@ type LabelListener struct {
 
 	offenderThreshold int64
 
-	notifier func(*database.Label)
+	notifier *LabelNotifier
 }
 
 func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener, error) {
@@ -100,6 +100,7 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 				serverUrl:         u,
 				db:                db,
 				offenderThreshold: offenderThreshold,
+				notifier:          NewLabelNotifier(logger.WithGroup("notifier")),
 			}
 			listener.cursor.Store(cursor)
 			listener.counter.Store(counter)
@@ -153,8 +154,8 @@ func (l *LabelListener) listen(ctx context.Context) error {
 	return err
 }
 
-func (l *LabelListener) SetNotifier(notifier func(*database.Label)) {
-	l.notifier = notifier
+func (l *LabelListener) Notifier() *LabelNotifier {
+	return l.notifier
 }
 
 func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStreamEvent) error {
@@ -210,7 +211,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 
 		if notify {
-			l.notifier(&database.Label{
+			l.notifier.Notify(&database.Label{
 				Id:   info.Id,
 				Did:  strings.TrimPrefix(did, "did:"),
 				Kind: kind,

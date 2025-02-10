@@ -21,7 +21,7 @@ type FiberServer struct {
 	db  *database.Service
 	log *slog.Logger
 
-	notifier *LabelNotifier
+	notifier *listener.LabelNotifier
 }
 
 //go:embed views/*
@@ -39,7 +39,7 @@ func New(upstream *listener.LabelListener, logger *slog.Logger) *FiberServer {
 		db:  database.Instance(),
 		log: logger,
 
-		notifier: NewLabelNotifier(upstream, logger.WithGroup("notifier")),
+		notifier: upstream.Notifier(),
 	}
 
 	return server

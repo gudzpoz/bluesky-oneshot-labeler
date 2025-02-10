@@ -3,120 +3,12 @@ package server
 import (
 	"bluesky-oneshot-labeler/internal/database"
 	"bluesky-oneshot-labeler/internal/listener"
-	"bytes"
-	"io"
-	"log/slog"
 	"strconv"
-	"sync"
-	"sync/atomic"
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/events"
 	"github.com/gofiber/contrib/websocket"
-
-	cbg "github.com/whyrusleeping/cbor-gen"
 )
-
-type Subscriber struct {
-	out   chan *events.XRPCStreamEvent
-	done  chan bool
-	since int64
-}
-
-type LabelNotifier struct {
-	subs []*Subscriber
-	lock sync.RWMutex
-	last atomic.Int64
-	log  *slog.Logger
-}
-
-func NewLabelNotifier(upstream *listener.LabelListener, logger *slog.Logger) *LabelNotifier {
-	notifier := &LabelNotifier{
-		subs: make([]*Subscriber, 0),
-		log:  logger,
-	}
-	upstream.SetNotifier(notifier.Notify)
-	return notifier
-}
-
-func (ln *LabelNotifier) Notify(label *database.Label) {
-	ln.lock.RLock()
-	defer ln.lock.RUnlock()
-	if len(ln.subs) == 0 {
-		return
-	}
-
-	signed, err := signLabel(label.Kind, label.Did, label.Cts)
-	if err != nil {
-		ln.log.Error("Failed to sign label", "error", err)
-		return
-	}
-	event := &events.XRPCStreamEvent{
-		LabelLabels: &atproto.LabelSubscribeLabels_Labels{
-			Labels: []*atproto.LabelDefs_Label{signed},
-			Seq:    label.Id,
-		},
-	}
-
-	// event.Preserialize() does not support LabelLabels yet
-	var buf bytes.Buffer
-	if err := serialize(event, &buf); err != nil {
-		ln.log.Error("Failed to preserialize label", "error", err)
-		return
-	}
-	event.Preserialized = buf.Bytes()
-	ln.last.Store(label.Id)
-
-	for _, sub := range ln.subs {
-		sub.out <- event
-	}
-}
-
-func serialize(event *events.XRPCStreamEvent, writer io.Writer) error {
-	w := cbg.NewCborWriter(writer)
-	if err := event.LabelLabels.MarshalCBOR(w); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (ln *LabelNotifier) Subscribe() *Subscriber {
-	sub := &Subscriber{
-		out:  make(chan *events.XRPCStreamEvent, 10),
-		done: make(chan bool),
-	}
-	ln.lock.Lock()
-	defer ln.lock.Unlock()
-	ln.subs = append(ln.subs, sub)
-	sub.since = ln.last.Load()
-	if sub.since < 0 {
-		// closed
-		sub.done <- true
-	}
-	return sub
-}
-
-func (ln *LabelNotifier) Unsubscribe(sub *Subscriber) {
-	ln.lock.Lock()
-	defer ln.lock.Unlock()
-	for i, s := range ln.subs {
-		if s == sub {
-			ln.subs[i] = ln.subs[len(ln.subs)-1]
-			ln.subs = ln.subs[:len(ln.subs)-1]
-			break
-		}
-	}
-}
-
-func (ln *LabelNotifier) Close() {
-	ln.lock.Lock()
-	defer ln.lock.Unlock()
-	for _, sub := range ln.subs {
-		sub.done <- true
-	}
-	ln.subs = nil
-	ln.last.Store(-1)
-}
 
 func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 	cursorStr := c.Query("cursor", "0")
@@ -135,71 +27,30 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 		return
 	}
 
-	var sub *Subscriber
-	for {
-		if latest > cursor {
-			err := s.subscriptionCatchUp(c, cursor)
+	err = s.notifier.ForAllLabelsSince(cursor, func(l *database.Label, xe *events.XRPCStreamEvent) error {
+		if xe == nil {
+			signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
 			if err != nil {
-				s.closeWithError(c, "InternalError", err.Error())
-				return
+				return err
 			}
-			cursor = latest
-		}
-		sub = s.notifier.Subscribe()
-		latest = sub.since
-		if latest <= cursor {
-			break
-		}
-		s.notifier.Unsubscribe(sub)
-	}
-	defer s.notifier.Unsubscribe(sub)
-
-	for {
-		select {
-		case <-sub.done:
-			c.Close()
-			return
-		case event := <-sub.out:
-			if err := s.writeEvent(c, event); err != nil {
-				s.closeWithError(c, "InternalError", err.Error())
-				return
+			xe = &events.XRPCStreamEvent{
+				LabelLabels: &atproto.LabelSubscribeLabels_Labels{
+					Labels: []*atproto.LabelDefs_Label{signed},
+					Seq:    l.Id,
+				},
 			}
 		}
-	}
-}
-
-func (s *FiberServer) subscriptionCatchUp(c *websocket.Conn, cursor int64) error {
-	s.log.Debug("catching up subscription", "cursor", cursor)
-
-	rows, err := s.db.QueryLabelsSince(cursor)
+		return s.writeEvent(c, xe)
+	})
 	if err != nil {
-		return err
+		s.closeWithError(c, "InternalError", err.Error())
+		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var did string
-		var kind int
-		var cts int64
-		err := rows.Scan(&id, &did, &kind, &cts)
-		if err != nil {
-			return err
-		}
-		signed, err := signLabel(kind, did, cts)
-		if err != nil {
-			return err
-		}
-		event := events.XRPCStreamEvent{
-			LabelLabels: &atproto.LabelSubscribeLabels_Labels{
-				Labels: []*atproto.LabelDefs_Label{signed},
-				Seq:    id,
-			},
-		}
-		if err := s.writeEvent(c, &event); err != nil {
-			return err
-		}
+
+	err = c.Close()
+	if err != nil {
+		s.log.Error("failed to close websocket", "error", err)
 	}
-	return nil
 }
 
 func (s *FiberServer) writeEvent(c *websocket.Conn, event *events.XRPCStreamEvent) error {
@@ -207,7 +58,7 @@ func (s *FiberServer) writeEvent(c *websocket.Conn, event *events.XRPCStreamEven
 	if err != nil {
 		return err
 	}
-	if err := serialize(event, writer); err != nil {
+	if err := listener.Serialize(event, writer); err != nil {
 		s.log.Error("failed to serialize event", "error", err)
 	}
 	return writer.Close()

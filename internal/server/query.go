@@ -7,39 +7,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
-	"github.com/bluesky-social/indigo/util/labels"
 	"github.com/bluesky-social/indigo/xrpc"
 	"github.com/gofiber/fiber/v2"
 )
-
-func signLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, error) {
-	var val string
-	switch kind {
-	case listener.LabelPorn:
-		val = at_utils.LabelPornString
-	case listener.LabelSexual:
-		val = at_utils.LabelSexualString
-	case listener.LabelNudity:
-		val = at_utils.LabelNudityString
-	case listener.LabelGraphicMedia:
-		val = at_utils.LabelGraphicMediaString
-	case listener.LabelOffender:
-		val = "offender"
-	default:
-		val = "others"
-	}
-	unsigned := labels.UnsignedLabel{
-		Cts: time.UnixMilli(cts).UTC().Format(time.RFC3339),
-		Src: at_utils.UserDid.String(),
-		Uri: "at://did:" + did,
-		Val: val,
-		Ver: &at_utils.AtProtoVersion,
-	}
-	return at_utils.SignLabel(&unsigned)
-}
 
 func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 	input := database.QueryLabelsInput{
@@ -111,7 +83,7 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 	}
 
 	for i, l := range queried {
-		signed, err := signLabel(l.Kind, l.Did, l.Cts)
+		signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(xrpc.XRPCError{
 				ErrStr:  "InternalError",
