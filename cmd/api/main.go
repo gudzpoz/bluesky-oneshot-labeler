@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -132,19 +133,20 @@ func runServer() error {
 func start(ctx context.Context, runnables ...Runnable) chan bool {
 	ctx, cancel := context.WithCancel(ctx)
 	doneSignals := make([]chan bool, len(runnables))
+	waitGroup := sync.WaitGroup{}
+	waitGroup.Add(len(runnables))
 	for i, runnable := range runnables {
 		doneSignals[i] = runnable.Run(ctx)
 		go func() {
 			<-doneSignals[i]
+			waitGroup.Done()
 			cancel()
 		}()
 	}
 
 	done := make(chan bool)
 	go func() {
-		for _, doneSignal := range doneSignals {
-			<-doneSignal
-		}
+		waitGroup.Wait()
 		cancel()
 		done <- true
 	}()

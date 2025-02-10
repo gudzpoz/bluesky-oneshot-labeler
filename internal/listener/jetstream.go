@@ -99,6 +99,7 @@ func (l *JetstreamListener) Persist(done chan bool) {
 			}
 		}
 	}
+	l.log.Info("persist queue closed")
 	done <- true
 }
 
@@ -109,7 +110,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 			l.log.Info("connecting to jetstream in 1 second")
 			select {
 			case <-ctx.Done():
-				l.log.Info("context done, listening stopped")
+				l.log.Info("context done, jetstream stopped")
 				close(l.persistQueue)
 				return
 			case <-time.After(1 * time.Second):

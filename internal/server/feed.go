@@ -4,6 +4,7 @@ import (
 	"bluesky-oneshot-labeler/internal/at_utils"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/xrpc"
@@ -71,6 +72,8 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 	}
 	feed := make([]*bsky.FeedDefs_SkeletonFeedPost, len(items))
 	for i, uri := range items {
+		splits := strings.SplitN(uri, "/", 2)
+		uri = "at://" + splits[0] + "/app.bsky.feed.post/" + splits[1]
 		feed[i] = &bsky.FeedDefs_SkeletonFeedPost{
 			Post: uri,
 		}
