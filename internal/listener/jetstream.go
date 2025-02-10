@@ -120,14 +120,25 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 
 func (l *JetstreamListener) Persist(done chan bool) {
 	count := 0
+	last := time.Now()
 	for uri := range l.persistQueue {
 		err := l.db.InsertFeedItem(uri)
 		if err != nil {
 			l.log.Error("failed to insert feed item", "uri", uri, "err", err)
 		}
 		if count%100 == 0 {
-			// TODO: Remove old entries
-			// TODO: VACUUM when idle
+			now := time.Now()
+			if now.Sub(last) > 10*time.Minute {
+				err := l.db.PruneFeedEntries(now.Add(-48 * time.Hour))
+				if err != nil {
+					l.log.Error("failed to prune feed entries", "err", err)
+				} else {
+					err := l.db.IncrementalVacuum()
+					if err != nil {
+						l.log.Error("failed to vacuum database", "err", err)
+					}
+				}
+			}
 		}
 	}
 	done <- true

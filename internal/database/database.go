@@ -21,8 +21,11 @@ type Service struct {
 	lastLabelIdStmt      *sql.Stmt
 	queryLabelsSinceStmt *sql.Stmt
 
-	insertFeedItemStmt *sql.Stmt
-	getFeedItemsStmt   *sql.Stmt
+	insertFeedItemStmt    *sql.Stmt
+	getFeedItemsStmt      *sql.Stmt
+	scanFirstRecentIdStmt *sql.Stmt
+	pruneFeedEntriesStmt  *sql.Stmt
+	incrementalVacuumStmt *sql.Stmt
 }
 
 var dbInstance *Service

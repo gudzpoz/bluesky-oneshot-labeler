@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -20,6 +21,30 @@ func (s *Service) prepareFeedStatements() error {
 		return err
 	}
 	s.getFeedItemsStmt = stmt
+
+	stmt, err = s.db.Prepare(
+		"SELECT id FROM feed_list WHERE cts >= ? ORDER BY id ASC LIMIT 1",
+	)
+	if err != nil {
+		return err
+	}
+	s.scanFirstRecentIdStmt = stmt
+
+	stmt, err = s.db.Prepare(
+		"DELETE FROM feed_list WHERE id < ?",
+	)
+	if err != nil {
+		return err
+	}
+	s.pruneFeedEntriesStmt = stmt
+
+	stmt, err = s.db.Prepare(
+		"PRAGMA incremental_vacuum",
+	)
+	if err != nil {
+		return err
+	}
+	s.incrementalVacuumStmt = stmt
 
 	return nil
 }
@@ -44,4 +69,25 @@ func (s *Service) GetFeedItems(cursor *int64, limit int) ([]string, error) {
 		uris = append(uris, uri)
 	}
 	return uris, nil
+}
+
+func (s *Service) PruneFeedEntries(before time.Time) error {
+	// To reduce SQLite pressure, we do not have a cts index on purpose,
+	// so we need to batch-delete by primary key id instead of cts.
+
+	// Find the first id to preserve (cts >= before)
+	var approxId int64
+	if err := s.scanFirstRecentIdStmt.QueryRow(before.UnixMilli()).Scan(&approxId); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	_, err := s.pruneFeedEntriesStmt.Exec(approxId)
+	return err
+}
+
+func (s *Service) IncrementalVacuum() error {
+	_, err := s.incrementalVacuumStmt.Exec()
+	return err
 }
