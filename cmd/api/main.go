@@ -134,7 +134,7 @@ func runServer() error {
 		return err
 	}
 
-	server := server.New(subscription, logger)
+	server := server.New(subscription, jetstream, logger)
 
 	done := start(background, subscription, blockList, jetstream, server)
 	<-done

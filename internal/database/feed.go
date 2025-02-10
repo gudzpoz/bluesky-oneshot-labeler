@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -90,4 +92,42 @@ func (s *Service) PruneFeedEntries(before time.Time) error {
 func (s *Service) IncrementalVacuum() error {
 	_, err := s.incrementalVacuumStmt.Exec()
 	return err
+}
+
+func (s *Service) PruneEntries(predicate func(string) bool) error {
+	unwantedIds := make([]any, 0, 500)
+	cursor := int64(math.MaxInt64)
+	for cursor > 0 {
+		rows, err := s.getFeedItemsStmt.Query(cursor, 500)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil
+			}
+			return err
+		}
+		var uri string
+		for rows.Next() {
+			if err := rows.Scan(&cursor, &uri); err != nil {
+				rows.Close()
+				return err
+			}
+			if predicate(uri) {
+				unwantedIds = append(unwantedIds, cursor)
+			}
+		}
+
+		if len(unwantedIds) != 0 {
+			_, err = s.db.Exec(
+				"DELETE FROM feed_list WHERE id IN (?"+
+					strings.Repeat(",?", len(unwantedIds)-1)+
+					")",
+				unwantedIds...,
+			)
+			if err != nil {
+				return err
+			}
+			unwantedIds = unwantedIds[:0]
+		}
+	}
+	return nil
 }

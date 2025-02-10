@@ -73,7 +73,12 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 	feed := make([]*bsky.FeedDefs_SkeletonFeedPost, len(items))
 	for i, uri := range items {
 		splits := strings.SplitN(uri, "/", 2)
-		uri = "at://" + splits[0] + "/app.bsky.feed.post/" + splits[1]
+		did := splits[0]
+		compactDid := strings.TrimPrefix(did, "did:")
+		if s.blocker.InBlockList(compactDid) {
+			continue
+		}
+		uri = "at://" + did + "/app.bsky.feed.post/" + splits[1]
 		feed[i] = &bsky.FeedDefs_SkeletonFeedPost{
 			Post: uri,
 		}

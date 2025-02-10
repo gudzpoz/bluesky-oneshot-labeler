@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -28,6 +29,7 @@ type JetstreamListener struct {
 	bloomApprox  int64
 	bloomFilter  *bloom.BloomFilter
 	blockList    *BlockListInSync
+	listUpdated  chan bool
 	persistQueue chan string
 }
 
@@ -49,7 +51,11 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		bloomApprox: latest,
 		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
 		blockList:   blockList,
+		listUpdated: make(chan bool),
 	}
+	blockList.SetNotifier(func() {
+		listener.listUpdated <- true
+	})
 
 	scheduler := parallel.NewScheduler(
 		runtime.NumCPU(), // language classification can be CPU intensive
@@ -102,10 +108,35 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 }
 
 func (l *JetstreamListener) Persist(done chan bool) {
+	ctx, cancel := context.WithCancel(context.Background())
+	lock := sync.Mutex{}
+
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-l.listUpdated:
+				count++
+				if count%32 == 0 {
+					lock.Lock()
+					err := l.PruneBlockedEntries()
+					lock.Unlock()
+					if err != nil {
+						l.log.Error("failed to prune blocked entries", "err", err)
+					}
+				}
+			}
+		}
+	}()
+
 	count := 0
 	last := time.Now()
 	for uri := range l.persistQueue {
+		lock.Lock()
 		err := l.db.InsertFeedItem(uri)
+		lock.Unlock()
 		if err != nil {
 			l.log.Error("failed to insert feed item", "uri", uri, "err", err)
 		}
@@ -125,7 +156,19 @@ func (l *JetstreamListener) Persist(done chan bool) {
 		}
 	}
 	l.log.Info("persist queue closed")
+	cancel()
 	done <- true
+}
+
+func (l *JetstreamListener) PruneBlockedEntries() error {
+	return l.db.PruneEntries(func(compactUri string) bool {
+		i := strings.Index(compactUri, "/")
+		if i == -1 {
+			return false
+		}
+		compactDid := strings.TrimPrefix(compactUri[:i], "did:")
+		return l.InBlockList(compactDid)
+	})
 }
 
 func (l *JetstreamListener) Run(ctx context.Context) chan bool {
@@ -142,6 +185,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 				close(l.persistQueue)
 				return
 			case <-time.After(1 * time.Second):
+				// TODO: This results in duplicate entries on reconnect/restart.
 				ahead := time.Now().UTC().Add(-10 * time.Minute).UnixMicro()
 				if err := l.client.ConnectAndRead(ctx, &ahead); err != nil {
 					l.log.Error("jetstream error", "err", err)
@@ -171,12 +215,12 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			err := l.notifier.ForAllLabelsSince(ctx, 0, func(l *database.Label, xe *events.XRPCStreamEvent) error {
+			err := l.notifier.ForAllLabelsSince(ctx, 0, func(label *database.Label, xe *events.XRPCStreamEvent) error {
 				var id int64
 				var did string
-				if l != nil {
-					id = l.Id
-					did = l.Did
+				if label != nil {
+					id = label.Id
+					did = label.Did
 				} else {
 					id = xe.LabelLabels.Seq
 					did = strings.TrimPrefix(xe.LabelLabels.Labels[0].Uri, "at://did:")
@@ -185,6 +229,9 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 					return RebuildFilterError{NewSize: id}
 				}
 				filter.AddString(did)
+				if label == nil {
+					l.listUpdated <- true
+				}
 				return nil
 			})
 			if err != nil {
@@ -203,6 +250,10 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 }
 
 func (l *JetstreamListener) InBlockList(did string) bool {
+	if l.blockList.Contains(did) {
+		return true
+	}
+
 	if !l.bloomFilter.TestString(did) {
 		return false
 	}

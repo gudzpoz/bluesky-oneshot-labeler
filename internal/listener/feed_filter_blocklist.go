@@ -17,8 +17,9 @@ type BlockListInSync struct {
 	filter *bloom.BloomFilter
 	list   map[string]struct{}
 
-	csvPath string
-	watcher *fsnotify.Watcher
+	csvPath  string
+	watcher  *fsnotify.Watcher
+	notifier func()
 }
 
 func NewBlockListInSync(csvPath string) (*BlockListInSync, error) {
@@ -28,11 +29,16 @@ func NewBlockListInSync(csvPath string) (*BlockListInSync, error) {
 	}
 
 	return &BlockListInSync{
-		filter:  bloom.NewWithEstimates(100, 0.01),
-		list:    make(map[string]struct{}),
-		csvPath: csvPath,
-		watcher: watcher,
+		filter:   bloom.NewWithEstimates(100, 0.01),
+		list:     make(map[string]struct{}),
+		csvPath:  csvPath,
+		watcher:  watcher,
+		notifier: func() {},
 	}, nil
+}
+
+func (b *BlockListInSync) SetNotifier(notifier func()) {
+	b.notifier = notifier
 }
 
 func (b *BlockListInSync) Contains(did string) bool {
@@ -85,6 +91,7 @@ func (b *BlockListInSync) update() error {
 	b.filter = filter
 	b.list = list
 	logger.Info("blocklist updated", "count", count)
+	b.notifier()
 	return nil
 }
 

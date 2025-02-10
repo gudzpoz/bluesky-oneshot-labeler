@@ -21,13 +21,14 @@ type FiberServer struct {
 	db  *database.Service
 	log *slog.Logger
 
+	blocker  *listener.JetstreamListener
 	notifier *listener.LabelNotifier
 }
 
 //go:embed views/*
 var viewsFs embed.FS
 
-func New(upstream *listener.LabelListener, logger *slog.Logger) *FiberServer {
+func New(upstream *listener.LabelListener, source *listener.JetstreamListener, logger *slog.Logger) *FiberServer {
 	engine := html.NewFileSystem(http.FS(viewsFs), ".html")
 
 	server := &FiberServer{
@@ -39,6 +40,7 @@ func New(upstream *listener.LabelListener, logger *slog.Logger) *FiberServer {
 		db:  database.Instance(),
 		log: logger,
 
+		blocker:  source,
 		notifier: upstream.Notifier(),
 	}
 
