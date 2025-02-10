@@ -58,7 +58,11 @@ func IsRegularFile(path string) bool {
 
 func InitXrpcClient(ctx context.Context) error {
 	if !IsRegularFile(sessionFile) {
-		ident, err := syntax.ParseAtIdentifier(config.Username)
+		user := config.UserDid
+		if user == "" {
+			user = config.Username
+		}
+		ident, err := syntax.ParseAtIdentifier(user)
 		if err != nil {
 			return err
 		}

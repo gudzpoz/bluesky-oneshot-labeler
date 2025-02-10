@@ -73,8 +73,6 @@ func PublishLabelerInfo(ctx context.Context) error {
 
 	keyExists := false
 	for _, vm := range ident.VerificationMethod {
-		fmt.Println(vm.PublicKeyMultibase)
-		fmt.Println(pubKeyStr)
 		if vm.PublicKeyMultibase == strings.TrimPrefix(pubKeyStr, "did:key:") {
 			keyExists = true
 			break

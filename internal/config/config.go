@@ -23,6 +23,7 @@ func getEnvInt(s string) int {
 
 var (
 	Username = os.Getenv("USERNAME")
+	UserDid  = os.Getenv("USER_DID")
 	Password = os.Getenv("PASSWORD")
 
 	UpstreamUser = os.Getenv("UPSTREAM_USER")
