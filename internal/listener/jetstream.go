@@ -25,6 +25,7 @@ type JetstreamListener struct {
 	client   *client.Client
 	notifier *LabelNotifier
 
+	bloomApprox  int64
 	bloomFilter  *bloom.BloomFilter
 	blockList    *BlockListInSync
 	persistQueue chan string
@@ -45,6 +46,7 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		log:         logger,
 		db:          db,
 		notifier:    upstream.Notifier(),
+		bloomApprox: latest,
 		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
 		blockList:   blockList,
 	}
@@ -133,7 +135,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 
 	go func() {
 		for {
-			l.log.Info("connecting to jetstream in 1 second")
+			l.log.Debug("connecting to jetstream in 1 second")
 			select {
 			case <-ctx.Done():
 				l.log.Info("context done, jetstream stopped")
@@ -144,7 +146,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 				if err := l.client.ConnectAndRead(ctx, &ahead); err != nil {
 					l.log.Error("jetstream error", "err", err)
 				}
-				l.log.Info("jetstream disconnected")
+				l.log.Debug("jetstream disconnected")
 			}
 		}
 	}()
@@ -162,6 +164,7 @@ func (e RebuildFilterError) Error() string {
 }
 
 func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
+	approx := l.bloomApprox
 	filter := l.bloomFilter
 	for {
 		select {
@@ -178,7 +181,7 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 					id = xe.LabelLabels.Seq
 					did = strings.TrimPrefix(xe.LabelLabels.Labels[0].Uri, "at://did:")
 				}
-				if id > int64(filter.ApproximatedSize())*2 {
+				if id > approx*2 {
 					return RebuildFilterError{NewSize: id}
 				}
 				filter.AddString(did)
@@ -186,8 +189,10 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 			})
 			if err != nil {
 				if newSize, ok := err.(RebuildFilterError); ok {
-					l.log.Info("rebuilding bloom filter", "new_size", newSize.NewSize)
+					l.log.Debug("rebuilding bloom filter", "new_size", newSize.NewSize)
 					filter = bloom.NewWithEstimates(uint(newSize.NewSize), 0.01)
+					approx = newSize.NewSize
+					l.bloomApprox = approx
 					l.bloomFilter = filter
 				} else {
 					l.log.Error("bloom filter sync error", "err", err)
