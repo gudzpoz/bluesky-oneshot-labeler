@@ -11,18 +11,17 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-var logger = slog.Default().WithGroup("csv")
-
 type BlockListInSync struct {
 	filter *bloom.BloomFilter
 	list   map[string]struct{}
 
+	log      *slog.Logger
 	csvPath  string
 	watcher  *fsnotify.Watcher
 	notifier func()
 }
 
-func NewBlockListInSync(csvPath string) (*BlockListInSync, error) {
+func NewBlockListInSync(csvPath string, logger *slog.Logger) (*BlockListInSync, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -31,6 +30,7 @@ func NewBlockListInSync(csvPath string) (*BlockListInSync, error) {
 	return &BlockListInSync{
 		filter:   bloom.NewWithEstimates(100, 0.01),
 		list:     make(map[string]struct{}),
+		log:      logger,
 		csvPath:  csvPath,
 		watcher:  watcher,
 		notifier: func() {},
@@ -91,7 +91,7 @@ func (b *BlockListInSync) update() error {
 
 	b.filter = filter
 	b.list = list
-	logger.Info("blocklist updated", "count", count)
+	b.log.Info("blocklist updated", "count", count)
 	b.notifier()
 	return nil
 }
@@ -109,7 +109,7 @@ func (b *BlockListInSync) Run(ctx context.Context) chan bool {
 
 		err := b.update()
 		if err != nil {
-			logger.Error("failed to update blocklist", "err", err)
+			b.log.Error("failed to update blocklist", "err", err)
 			cancel(err)
 			return
 		}
@@ -119,14 +119,14 @@ func (b *BlockListInSync) Run(ctx context.Context) chan bool {
 				return
 			case event, ok := <-b.watcher.Events:
 				if !ok {
-					logger.Error("watcher closed")
+					b.log.Error("watcher closed")
 					cancel(context.Canceled)
 					return
 				}
 				if event.Has(fsnotify.Write) {
 					err := b.update()
 					if err != nil {
-						logger.Error("failed to update blocklist", "err", err)
+						b.log.Error("failed to update blocklist", "err", err)
 					}
 				}
 			}
@@ -134,15 +134,16 @@ func (b *BlockListInSync) Run(ctx context.Context) chan bool {
 	}()
 	err := b.watcher.Add(b.csvPath)
 	if err != nil {
-		logger.Error("failed to watch blocklist", "err", err)
+		b.log.Error("failed to watch blocklist", "err", err)
 		cancel(err)
 	}
 	return done
 }
 
 func (b *BlockListInSync) Close(done chan bool) {
+	b.log.Info("blocklist sync stopped")
 	done <- true
 	if err := b.watcher.Close(); err != nil {
-		logger.Error("failed to close watcher", "err", err)
+		b.log.Error("failed to close watcher", "err", err)
 	}
 }

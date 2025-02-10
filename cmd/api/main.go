@@ -123,7 +123,7 @@ func runServer() error {
 		return err
 	}
 
-	blockList, err := listener.NewBlockListInSync(config.ExternalBlockList)
+	blockList, err := listener.NewBlockListInSync(config.ExternalBlockList, logger.WithGroup("csv"))
 	if err != nil {
 		logger.Error("failed to create block list", "err", err)
 		return err

@@ -117,7 +117,7 @@ func (l *LabelListener) Run(ctx context.Context) chan bool {
 			l.log.Info("connecting in 1 second")
 			select {
 			case <-ctx.Done():
-				l.log.Info("context done, listening stopped")
+				l.log.Info("context done, label listening stopped")
 				done <- true
 				return
 			case <-time.After(1 * time.Second):
@@ -143,11 +143,9 @@ func (l *LabelListener) listen(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	stopPersist := l.startPersistSeq()
-
+	go l.startPersistSeq(ctx)
 	err = events.HandleRepoStream(ctx, conn, scheduler, l.log)
 
-	stopPersist <- true
 	if err2 := l.persistSeq(); err2 != nil && err == nil {
 		return err2
 	}
@@ -224,22 +222,18 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 	return nil
 }
 
-func (l *LabelListener) startPersistSeq() chan bool {
-	done := make(chan bool, 1)
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case <-time.After(10 * time.Second):
-				err := l.persistSeq()
-				if err != nil {
-					l.log.Warn("failed to persist label cursor", "err", err)
-				}
+func (l *LabelListener) startPersistSeq(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+			err := l.persistSeq()
+			if err != nil {
+				l.log.Warn("failed to persist label cursor", "err", err)
 			}
 		}
-	}()
-	return done
+	}
 }
 
 func (l *LabelListener) persistSeq() error {
