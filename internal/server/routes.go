@@ -25,6 +25,8 @@ func (s *FiberServer) RegisterFiberRoutes() {
 	s.App.Get("/xrpc/_health", s.HealthHandler)
 	s.App.Get("/xrpc/com.atproto.label.queryLabels", s.QueryLabelsHandler)
 	s.App.Get("/xrpc/com.atproto.label.subscribeLabels", websocket.New(s.SubscribeLabelsHandler))
+	s.App.Get("/xrpc/app.bsky.feed.describeFeedGenerator", s.DescribeFeedGeneratorHandler)
+	s.App.Get("/xrpc/app.bsky.feed.getfeedskeleton", s.GetFeedSkeletonHandler)
 	s.App.Get("/xrpc/*", s.NotImplementedHandler)
 }
 

@@ -109,6 +109,12 @@ type Runnable interface {
 }
 
 func runServer() error {
+	jetstream, err := listener.NewJetStreamListener(logger)
+	if err != nil {
+		logger.Error("failed to create jetstream listener", "err", err)
+		return err
+	}
+
 	subscription, err := listener.NewLabelListener(startupCtx, logger)
 	if err != nil {
 		logger.Error("failed to create listener", "err", err)

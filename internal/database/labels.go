@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (s *Service) prepareIncrementCounter() error {
+func (s *Service) prepareLabelStatements() error {
 	stmt, err := s.db.Prepare(
 		"INSERT INTO user (did) VALUES (?)" +
 			" ON CONFLICT (did) DO UPDATE SET uid = uid RETURNING uid",
@@ -25,6 +25,25 @@ func (s *Service) prepareIncrementCounter() error {
 		return err
 	}
 	s.incrementCounterStmt = stmt
+
+	stmt, err = s.db.Prepare(
+		"SELECT id FROM block_list ORDER BY id DESC LIMIT 1",
+	)
+	if err != nil {
+		return err
+	}
+	s.lastLabelIdStmt = stmt
+
+	stmt, err = s.db.Prepare(
+		"SELECT id, u.did, kind, cts FROM block_list l" +
+			" JOIN user u ON l.uid = u.uid" +
+			" WHERE id > ?" +
+			" ORDER BY id ASC",
+	)
+	if err != nil {
+		return err
+	}
+	s.queryLabelsSinceStmt = stmt
 
 	return nil
 }
@@ -118,7 +137,7 @@ func (s *Service) QueryLabels(input *QueryLabelsInput) ([]Label, error) {
 
 func (s *Service) LatestLabelId() (int64, error) {
 	var id int64
-	err := s.db.QueryRow("SELECT id FROM block_list ORDER BY id DESC LIMIT 1").Scan(&id)
+	err := s.lastLabelIdStmt.QueryRow().Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -126,12 +145,6 @@ func (s *Service) LatestLabelId() (int64, error) {
 }
 
 func (s *Service) QueryLabelsSince(id int64) (*sql.Rows, error) {
-	rows, err := s.db.Query(
-		"SELECT id, u.did, kind, cts FROM block_list l"+
-			" JOIN user u ON l.uid = u.uid"+
-			" WHERE id > ?"+
-			" ORDER BY id ASC",
-		id,
-	)
+	rows, err := s.queryLabelsSinceStmt.Query(id)
 	return rows, err
 }

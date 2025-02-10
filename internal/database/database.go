@@ -18,6 +18,11 @@ type Service struct {
 
 	insertUserStmt       *sql.Stmt
 	incrementCounterStmt *sql.Stmt
+	lastLabelIdStmt      *sql.Stmt
+	queryLabelsSinceStmt *sql.Stmt
+
+	insertFeedItemStmt *sql.Stmt
+	getFeedItemsStmt   *sql.Stmt
 }
 
 var dbInstance *Service
@@ -36,7 +41,7 @@ func InitDatabase(logger *slog.Logger) error {
 		if _, err := os.Stat(url); os.IsNotExist(err) {
 			initDb = true
 		}
-		url = "file:" + url + "?mode=rwc&_journal=WAL&_txlock=immediate&_timeout=5000"
+		url = "file:" + url + "?mode=rwc&_journal=WAL&_txlock=immediate&_vacuum=incremental&_timeout=5000"
 	}
 
 	db, err := sql.Open("sqlite3", url)
@@ -63,7 +68,11 @@ func InitDatabase(logger *slog.Logger) error {
 		return err
 	}
 
-	err = dbInstance.prepareIncrementCounter()
+	err = dbInstance.prepareLabelStatements()
+	if err != nil {
+		return err
+	}
+	err = dbInstance.prepareFeedStatements()
 	if err != nil {
 		return err
 	}
@@ -84,7 +93,7 @@ func Instance() *Service {
 
 //go:embed schema.sql
 var schemaSql string
-var dbVersion = 0
+var dbVersion = 1
 
 func (s *Service) init() error {
 	for _, line := range strings.Split(schemaSql, ";") {
@@ -106,8 +115,39 @@ func (s *Service) upgrade() error {
 		return err
 	}
 
+	try := func(nextVer int, sqls ...string) error {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, sql := range sqls {
+			_, err = tx.Exec(sql)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+		_, err = tx.Exec("UPDATE config SET value = ? WHERE key = ?", strconv.Itoa(nextVer), "dbversion")
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		return tx.Commit()
+	}
+
 	switch ver {
 	case 0:
+		try(
+			1,
+			"VACUUM",
+			`CREATE TABLE feed_list (
+				id integer PRIMARY KEY AUTOINCREMENT,
+				uri text not null,
+				cts integer not null
+			)`,
+		)
+		fallthrough
+	case 1:
 		s.log.Debug("No upgrade needed")
 	default:
 		s.log.Error("Unknown database version", "version", ver)
