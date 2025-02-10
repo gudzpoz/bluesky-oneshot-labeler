@@ -49,19 +49,19 @@ func (s *FiberServer) Run(ctx context.Context) chan bool {
 	s.RegisterFiberRoutes()
 
 	// Create a done channel to signal when the shutdown is complete
-	done := make(chan bool, 1)
-
+	ctx, cancel := context.WithCancelCause(ctx)
 	go func() {
-		port := config.Port
-		err := s.Listen(fmt.Sprintf(":%d", port))
+		port := fmt.Sprintf(":%d", config.Port)
+		err := s.Listen(port)
 		if err != nil {
-			panic(fmt.Sprintf("http server error: %s", err))
+			s.log.Error("http server error", "err", err)
 		}
+		cancel(err)
 	}()
 
 	// Run graceful shutdown in a separate goroutine
+	done := make(chan bool, 1)
 	go s.gracefulShutdown(ctx, done)
-
 	return done
 }
 

@@ -104,6 +104,10 @@ func publishLabeler() error {
 	return nil
 }
 
+type Runnable interface {
+	Run(ctx context.Context) chan bool
+}
+
 func runServer() error {
 	subscription, err := listener.NewLabelListener(startupCtx, logger)
 	if err != nil {
@@ -113,21 +117,29 @@ func runServer() error {
 
 	server := server.New(subscription, logger)
 
-	done := start(background, subscription, server)
+	done := start(background, subscription, jetstream, server)
 	<-done
 
 	return nil
 }
 
-func start(ctx context.Context, subscription *listener.LabelListener, server *server.FiberServer) chan bool {
-	serverDone := server.Run(ctx)
-	listenerDone := subscription.Listen(ctx)
+func start(ctx context.Context, runnables ...Runnable) chan bool {
+	ctx, cancel := context.WithCancel(ctx)
+	doneSignals := make([]chan bool, len(runnables))
+	for i, runnable := range runnables {
+		doneSignals[i] = runnable.Run(ctx)
+		go func() {
+			<-doneSignals[i]
+			cancel()
+		}()
+	}
 
 	done := make(chan bool)
-
 	go func() {
-		<-listenerDone
-		<-serverDone
+		for _, doneSignal := range doneSignals {
+			<-doneSignal
+		}
+		cancel()
 		done <- true
 	}()
 

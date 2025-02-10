@@ -109,7 +109,7 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 	return nil, fmt.Errorf("labeler service not found")
 }
 
-func (l *LabelListener) Listen(ctx context.Context) chan bool {
+func (l *LabelListener) Run(ctx context.Context) chan bool {
 	done := make(chan bool)
 	go func() {
 		for {
