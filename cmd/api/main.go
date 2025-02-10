@@ -2,6 +2,7 @@ package main
 
 import (
 	"bluesky-oneshot-labeler/internal/at_utils"
+	"bluesky-oneshot-labeler/internal/config"
 	"bluesky-oneshot-labeler/internal/database"
 	"bluesky-oneshot-labeler/internal/listener"
 	"bluesky-oneshot-labeler/internal/server"
@@ -115,21 +116,27 @@ type Runnable interface {
 }
 
 func runServer() error {
-	jetstream, err := listener.NewJetStreamListener(logger)
-	if err != nil {
-		logger.Error("failed to create jetstream listener", "err", err)
-		return err
-	}
-
 	subscription, err := listener.NewLabelListener(startupCtx, logger)
 	if err != nil {
 		logger.Error("failed to create listener", "err", err)
 		return err
 	}
 
+	blockList, err := listener.NewBlockListInSync(config.ExternalBlockList)
+	if err != nil {
+		logger.Error("failed to create block list", "err", err)
+		return err
+	}
+
+	jetstream, err := listener.NewJetStreamListener(subscription, blockList, logger)
+	if err != nil {
+		logger.Error("failed to create jetstream listener", "err", err)
+		return err
+	}
+
 	server := server.New(subscription, logger)
 
-	done := start(background, subscription, jetstream, server)
+	done := start(background, subscription, blockList, jetstream, server)
 	<-done
 
 	return nil

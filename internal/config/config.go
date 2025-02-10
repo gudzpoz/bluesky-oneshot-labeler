@@ -43,4 +43,6 @@ var (
 	FeedName   = os.Getenv("FEED_NAME")
 	FeedAvatar = os.Getenv("FEED_AVATAR")
 	FeedDesc   = os.Getenv("FEED_DESCRIPTION")
+
+	ExternalBlockList = os.Getenv("EXTERNAL_BLOCK_LIST")
 )

@@ -5,6 +5,7 @@ go 1.23
 require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bluesky-social/indigo v0.0.0-20241231202233-01e4144c9b6d
+	github.com/fsnotify/fsnotify v1.8.0
 	github.com/gofiber/contrib/websocket v1.3.3
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/gorilla/websocket v1.5.1

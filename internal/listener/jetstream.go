@@ -26,10 +26,11 @@ type JetstreamListener struct {
 	notifier *LabelNotifier
 
 	bloomFilter  *bloom.BloomFilter
+	blockList    *BlockListInSync
 	persistQueue chan string
 }
 
-func NewJetStreamListener(upstream *LabelListener, logger *slog.Logger) (*JetstreamListener, error) {
+func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, logger *slog.Logger) (*JetstreamListener, error) {
 	config := client.DefaultClientConfig()
 	config.WantedCollections = []string{"app.bsky.feed.post"}
 	config.WebsocketURL = "wss://jetstream2.us-west.bsky.network/subscribe"
@@ -45,6 +46,7 @@ func NewJetStreamListener(upstream *LabelListener, logger *slog.Logger) (*Jetstr
 		db:          db,
 		notifier:    upstream.Notifier(),
 		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
+		blockList:   blockList,
 	}
 
 	scheduler := parallel.NewScheduler(
@@ -84,6 +86,9 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	}
 
 	compactDid := strings.TrimPrefix(event.Did, "did:")
+	if l.blockList.Contains(compactDid) {
+		return nil
+	}
 	if l.InBlockList(compactDid) {
 		return nil
 	}
