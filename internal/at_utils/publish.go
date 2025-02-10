@@ -84,14 +84,16 @@ func PublishLabelerInfo(ctx context.Context) error {
 			return fmt.Errorf("verificationMethods[atproto_label] already exists: %s", vm.PublicKeyMultibase)
 		}
 	}
-	serviceExists := false
+	serviceExists := 0
 	for _, service := range ident.Service {
 		if service.Type == "AtprotoLabeler" && service.ServiceEndpoint == "https://"+config.Host {
-			serviceExists = true
-			break
+			serviceExists |= 0b01
+		}
+		if service.Type == "BskyFeedGenerator" && service.ServiceEndpoint == "https://"+config.Host {
+			serviceExists |= 0b10
 		}
 	}
-	if keyExists && serviceExists {
+	if keyExists && serviceExists == 0b11 {
 		slog.Info("Labeler info already published")
 		return nil
 	}
@@ -121,28 +123,13 @@ func PublishLabelerInfo(ctx context.Context) error {
 		}
 	}
 
-	if original, ok := verificationMethods["atproto_label"]; ok {
-		originalStr, ok := original.(string)
-		if !ok || originalStr != pubKeyStr {
-			return fmt.Errorf("verificationMethods[atproto_label] already exists: %s", original)
-		}
-		if originalStr == pubKeyStr {
-			if labeler, ok := services["atproto_labeler"]; ok {
-				if labelerMap, ok := labeler.(map[string]any); ok {
-					labelerType, ok1 := labelerMap["type"]
-					labelerEndpoint, ok2 := labelerMap["endpoint"]
-					if ok1 && labelerType == "AtprotoLabeler" &&
-						ok2 && labelerEndpoint == "https://"+config.Host {
-						slog.Info("Labeler info already published")
-						return nil
-					}
-				}
-			}
-		}
-	}
 	verificationMethods["atproto_label"] = pubKeyStr
 	services["atproto_labeler"] = map[string]any{
 		"type":     "AtprotoLabeler",
+		"endpoint": "https://" + config.Host,
+	}
+	services["bsky_fg"] = map[string]any{
+		"type":     "BskyFeedGenerator",
 		"endpoint": "https://" + config.Host,
 	}
 
@@ -282,4 +269,50 @@ func labelInfoExists(ctx context.Context) (string, error) {
 	}
 
 	return labelerDetails.Cid, nil
+}
+
+func PublishFeedInfo(ctx context.Context) error {
+	avatar := config.FeedAvatar
+	if avatar == "" {
+		return fmt.Errorf("FEED_AVATAR is not set")
+	}
+
+	var encoding string
+	if strings.HasSuffix(avatar, ".png") {
+		encoding = "image/png"
+	} else if strings.HasSuffix(avatar, ".jpg") {
+		encoding = "image/jpeg"
+	} else {
+		return fmt.Errorf("FEED_AVATAR must be a png or jpg file")
+	}
+	reader, err := os.Open(avatar)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	uploadApi := "com.atproto.repo.uploadBlob"
+	var blob atproto.RepoUploadBlob_Output
+	if err := Client.Do(ctx, xrpc.Procedure, encoding, uploadApi, nil, reader, &blob); err != nil {
+		return err
+	}
+
+	record := bsky.FeedGenerator{
+		Did:         UserDid.String(),
+		DisplayName: config.FeedName,
+		Description: &config.FeedDesc,
+		Avatar:      blob.Blob,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	trueValue := true
+	_, err = atproto.RepoPutRecord(ctx, Client, &atproto.RepoPutRecord_Input{
+		Collection: "app.bsky.feed.generator",
+		Record: &lex_util.LexiconTypeDecoder{
+			Val: &record,
+		},
+		Repo:     UserDid.String(),
+		Rkey:     "oneshot",
+		Validate: &trueValue,
+	})
+	return err
 }

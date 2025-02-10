@@ -38,4 +38,8 @@ var (
 	Socks5 = os.Getenv("SOCKS5")
 
 	PlcToken = os.Getenv("PLC_TOKEN")
+
+	FeedName   = os.Getenv("FEED_NAME")
+	FeedAvatar = os.Getenv("FEED_AVATAR")
+	FeedDesc   = os.Getenv("FEED_DESCRIPTION")
 )
