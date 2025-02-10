@@ -71,10 +71,10 @@ func (b *BlockListInSync) update() error {
 			did = line[:i]
 		}
 		did = strings.TrimSpace(did)
-		if !strings.HasPrefix(did, "did:plc:") {
+		if !strings.HasPrefix(did, "did:") {
 			continue
 		}
-		did = strings.TrimPrefix(did, "did:plc:")
+		did = strings.TrimPrefix(did, "did:")
 		list[did] = struct{}{}
 		count++
 	}
