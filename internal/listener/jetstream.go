@@ -52,6 +52,8 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
 		blockList:   blockList,
 		listUpdated: make(chan bool),
+
+		persistQueue: make(chan string, runtime.NumCPU()*32),
 	}
 	blockList.SetNotifier(func() {
 		listener.listUpdated <- true
@@ -107,8 +109,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	return nil
 }
 
-func (l *JetstreamListener) Persist(done chan bool) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (l *JetstreamListener) Persist(ctx context.Context, done chan bool) {
 	lock := sync.Mutex{}
 
 	go func() {
@@ -133,30 +134,35 @@ func (l *JetstreamListener) Persist(done chan bool) {
 
 	count := 0
 	last := time.Now()
-	for uri := range l.persistQueue {
-		lock.Lock()
-		err := l.db.InsertFeedItem(uri)
-		lock.Unlock()
-		if err != nil {
-			l.log.Error("failed to insert feed item", "uri", uri, "err", err)
-		}
-		if count%100 == 0 {
-			now := time.Now()
-			if now.Sub(last) > 10*time.Minute {
-				err := l.db.PruneFeedEntries(now.Add(-48 * time.Hour))
-				if err != nil {
-					l.log.Error("failed to prune feed entries", "err", err)
-				} else {
-					err := l.db.IncrementalVacuum()
+loop:
+	for {
+		select {
+		case uri := <-l.persistQueue:
+			lock.Lock()
+			err := l.db.InsertFeedItem(uri)
+			lock.Unlock()
+			if err != nil {
+				l.log.Error("failed to insert feed item", "uri", uri, "err", err)
+			}
+			if count%100 == 0 {
+				now := time.Now()
+				if now.Sub(last) > 10*time.Minute {
+					err := l.db.PruneFeedEntries(now.Add(-48 * time.Hour))
 					if err != nil {
-						l.log.Error("failed to vacuum database", "err", err)
+						l.log.Error("failed to prune feed entries", "err", err)
+					} else {
+						err := l.db.IncrementalVacuum()
+						if err != nil {
+							l.log.Error("failed to vacuum database", "err", err)
+						}
 					}
 				}
 			}
+		case <-ctx.Done():
+			break loop
 		}
 	}
-	l.log.Info("persist queue closed")
-	cancel()
+	l.log.Info("persist context done")
 	done <- true
 }
 
@@ -172,8 +178,7 @@ func (l *JetstreamListener) PruneBlockedEntries() error {
 }
 
 func (l *JetstreamListener) Run(ctx context.Context) chan bool {
-	l.persistQueue = make(chan string, runtime.NumCPU()*32)
-
+	persitCtx, cancelPersist := context.WithCancel(context.Background())
 	go l.KeepBloomFilterInSync(ctx)
 
 	go func() {
@@ -181,12 +186,12 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 			l.log.Debug("connecting to jetstream in 1 second")
 			select {
 			case <-ctx.Done():
-				l.log.Info("context done, jetstream stopped")
-				close(l.persistQueue)
+				l.log.Info("context done, jetstream stopped, now stopping persist")
+				cancelPersist()
 				return
 			case <-time.After(1 * time.Second):
 				// TODO: This results in duplicate entries on reconnect/restart.
-				ahead := time.Now().UTC().Add(-10 * time.Minute).UnixMicro()
+				ahead := time.Now().UTC().Add(-1 * time.Minute).UnixMicro()
 				if err := l.client.ConnectAndRead(ctx, &ahead); err != nil {
 					l.log.Error("jetstream error", "err", err)
 				}
@@ -195,7 +200,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 		}
 	}()
 	done := make(chan bool)
-	go l.Persist(done)
+	go l.Persist(persitCtx, done)
 	return done
 }
 
