@@ -55,6 +55,7 @@ func (s *FiberServer) HealthHandler(c *fiber.Ctx) error {
 }
 
 func (s *FiberServer) NotImplementedHandler(c *fiber.Ctx) error {
+	s.log.Debug("not implemented", "path", c.Path())
 	return c.Status(fiber.StatusNotImplemented).JSON(xrpc.XRPCError{
 		ErrStr:  "MethodNotImplemented",
 		Message: "Method not implemented",

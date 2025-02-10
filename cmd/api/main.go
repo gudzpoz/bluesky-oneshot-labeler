@@ -8,6 +8,7 @@ import (
 	"bluesky-oneshot-labeler/internal/server"
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -151,6 +152,7 @@ func start(ctx context.Context, runnables ...Runnable) chan bool {
 		doneSignals[i] = runnable.Run(ctx)
 		go func() {
 			<-doneSignals[i]
+			logger.Info("done signal received", "service", fmt.Sprintf("%T", runnable))
 			waitGroup.Done()
 			cancel()
 		}()
