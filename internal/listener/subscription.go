@@ -4,6 +4,7 @@ import (
 	"bluesky-oneshot-labeler/internal/at_utils"
 	"bluesky-oneshot-labeler/internal/database"
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"sync"
@@ -111,6 +112,7 @@ func (ln *LabelNotifier) Unsubscribe(sub *Subscriber) {
 type ForAllCallback func(*database.Label, *events.XRPCStreamEvent) error
 
 func (ln *LabelNotifier) ForAllLabelsSince(
+	ctx context.Context,
 	since int64,
 	fn ForAllCallback,
 ) error {
@@ -123,13 +125,20 @@ func (ln *LabelNotifier) ForAllLabelsSince(
 			return err
 		}
 		since = latest
-		sub = ln.Subscribe()
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			sub = ln.Subscribe()
+		}
 		latest = sub.since
 	}
 	defer ln.Unsubscribe(sub)
 
 	for {
 		select {
+		case <-ctx.Done():
+			return nil
 		case <-sub.done:
 			return nil
 		case event := <-sub.out:

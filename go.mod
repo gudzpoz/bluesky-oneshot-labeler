@@ -3,6 +3,7 @@ module bluesky-oneshot-labeler
 go 1.23
 
 require (
+	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bluesky-social/indigo v0.0.0-20241231202233-01e4144c9b6d
 	github.com/gofiber/contrib/websocket v1.3.3
 	github.com/gofiber/fiber/v2 v2.52.6
@@ -13,6 +14,7 @@ require (
 )
 
 require (
+	github.com/bits-and-blooms/bitset v1.10.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect

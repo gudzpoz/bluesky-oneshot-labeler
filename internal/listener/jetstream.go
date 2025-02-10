@@ -4,11 +4,15 @@ import (
 	"bluesky-oneshot-labeler/internal/database"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/bluesky-social/indigo/api/bsky"
+	"github.com/bluesky-social/indigo/events"
 	"github.com/bluesky-social/jetstream/pkg/client"
 	"github.com/bluesky-social/jetstream/pkg/client/schedulers/parallel"
 	"github.com/bluesky-social/jetstream/pkg/models"
@@ -17,20 +21,30 @@ import (
 type JetstreamListener struct {
 	log *slog.Logger
 
-	db     *database.Service
-	client *client.Client
+	db       *database.Service
+	client   *client.Client
+	notifier *LabelNotifier
 
+	bloomFilter  *bloom.BloomFilter
 	persistQueue chan string
 }
 
-func NewJetStreamListener(logger *slog.Logger) (*JetstreamListener, error) {
+func NewJetStreamListener(upstream *LabelListener, logger *slog.Logger) (*JetstreamListener, error) {
 	config := client.DefaultClientConfig()
 	config.WantedCollections = []string{"app.bsky.feed.post"}
 	config.WebsocketURL = "wss://jetstream2.us-west.bsky.network/subscribe"
 
+	db := database.Instance()
+	latest, err := db.LatestLabelId()
+	if err != nil {
+		return nil, err
+	}
+
 	listener := &JetstreamListener{
-		log: logger,
-		db:  database.Instance(),
+		log:         logger,
+		db:          db,
+		notifier:    upstream.Notifier(),
+		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
 	}
 
 	scheduler := parallel.NewScheduler(
@@ -65,8 +79,12 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 		return nil
 	}
 
-	// TODO: We just hard-code things here.
 	if !l.ShouldKeepFeedItem(&post) {
+		return nil
+	}
+
+	compactDid := strings.TrimPrefix(event.Did, "did:")
+	if l.InBlockList(compactDid) {
 		return nil
 	}
 
@@ -105,6 +123,9 @@ func (l *JetstreamListener) Persist(done chan bool) {
 
 func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 	l.persistQueue = make(chan string, runtime.NumCPU()*32)
+
+	go l.KeepBloomFilterInSync(ctx)
+
 	go func() {
 		for {
 			l.log.Info("connecting to jetstream in 1 second")
@@ -125,4 +146,60 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 	done := make(chan bool)
 	go l.Persist(done)
 	return done
+}
+
+type RebuildFilterError struct {
+	NewSize int64
+}
+
+func (e RebuildFilterError) Error() string {
+	return fmt.Sprintf("rebuild filter to size %d", e.NewSize)
+}
+
+func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
+	filter := l.bloomFilter
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			err := l.notifier.ForAllLabelsSince(ctx, 0, func(l *database.Label, xe *events.XRPCStreamEvent) error {
+				var id int64
+				var did string
+				if l != nil {
+					id = l.Id
+					did = l.Did
+				} else {
+					id = xe.LabelLabels.Seq
+					did = strings.TrimPrefix(xe.LabelLabels.Labels[0].Uri, "at://did:")
+				}
+				if id > int64(filter.ApproximatedSize())*2 {
+					return RebuildFilterError{NewSize: id}
+				}
+				filter.AddString(did)
+				return nil
+			})
+			if err != nil {
+				if newSize, ok := err.(RebuildFilterError); ok {
+					l.log.Info("rebuilding bloom filter", "new_size", newSize.NewSize)
+					filter = bloom.NewWithEstimates(uint(newSize.NewSize), 0.01)
+					l.bloomFilter = filter
+				} else {
+					l.log.Error("bloom filter sync error", "err", err)
+				}
+			}
+		}
+	}
+}
+
+func (l *JetstreamListener) InBlockList(did string) bool {
+	if !l.bloomFilter.TestString(did) {
+		return false
+	}
+	labeled, err := l.db.IsUserLabeled(did)
+	if err != nil {
+		l.log.Error("failed to check if user is labeled", "err", err)
+		return false
+	}
+	return labeled
 }

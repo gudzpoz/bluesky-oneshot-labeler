@@ -3,6 +3,7 @@ package server
 import (
 	"bluesky-oneshot-labeler/internal/database"
 	"bluesky-oneshot-labeler/internal/listener"
+	"context"
 	"strconv"
 
 	"github.com/bluesky-social/indigo/api/atproto"
@@ -27,7 +28,9 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 		return
 	}
 
-	err = s.notifier.ForAllLabelsSince(cursor, func(l *database.Label, xe *events.XRPCStreamEvent) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.SetCloseHandler(func(code int, text string) error { cancel(); return nil })
+	err = s.notifier.ForAllLabelsSince(ctx, cursor, func(l *database.Label, xe *events.XRPCStreamEvent) error {
 		if xe == nil {
 			signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
 			if err != nil {

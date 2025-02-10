@@ -20,6 +20,7 @@ type Service struct {
 	incrementCounterStmt *sql.Stmt
 	lastLabelIdStmt      *sql.Stmt
 	queryLabelsSinceStmt *sql.Stmt
+	userExistsStmt       *sql.Stmt
 
 	insertFeedItemStmt    *sql.Stmt
 	getFeedItemsStmt      *sql.Stmt

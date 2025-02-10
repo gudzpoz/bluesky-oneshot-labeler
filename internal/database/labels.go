@@ -45,6 +45,14 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.queryLabelsSinceStmt = stmt
 
+	stmt, err = s.db.Prepare(
+		"SELECT count(*) FROM user WHERE did = ? LIMIT 1",
+	)
+	if err != nil {
+		return err
+	}
+	s.userExistsStmt = stmt
+
 	return nil
 }
 
@@ -147,4 +155,10 @@ func (s *Service) LatestLabelId() (int64, error) {
 func (s *Service) QueryLabelsSince(from int64, to int64) (*sql.Rows, error) {
 	rows, err := s.queryLabelsSinceStmt.Query(from, to)
 	return rows, err
+}
+
+func (s *Service) IsUserLabeled(did string) (bool, error) {
+	var count int64
+	err := s.userExistsStmt.QueryRow(did).Scan(&count)
+	return count > 0, err
 }
