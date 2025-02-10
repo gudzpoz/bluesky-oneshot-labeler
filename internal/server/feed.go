@@ -55,7 +55,12 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 			Message: "Cursor must be greater than 0",
 		})
 	}
-	// TODO: input.Feed validation
+	if input.Feed != FeedUri() {
+		return c.Status(fiber.StatusBadRequest).JSON(xrpc.XRPCError{
+			ErrStr:  "InvalidRequest",
+			Message: "Feed must be " + FeedUri(),
+		})
+	}
 
 	items, err := s.db.GetFeedItems(&input.Cursor, input.Limit)
 	if err != nil {
