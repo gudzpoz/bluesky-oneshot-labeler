@@ -47,9 +47,9 @@ func InitDatabase(logger *slog.Logger) error {
 		if _, err := os.Stat(url); os.IsNotExist(err) {
 			initDb = true
 		}
-		url = "file:" + url + "?_journal=WAL&_txlock=immediate&_vacuum=incremental&_timeout=5000"
+		url = "file:" + url + "?_journal=WAL&_timeout=5000"
 		read_url = url + "&mode=ro"
-		url = url + "&mode=rwc"
+		url = url + "&mode=rwc&_txlock=immediate&_vacuum=incremental"
 	}
 
 	wdb, err := sql.Open("sqlite3", url)

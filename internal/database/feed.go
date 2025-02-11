@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"math"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -94,39 +95,47 @@ func (s *Service) IncrementalVacuum() error {
 	return err
 }
 
-func (s *Service) PruneEntries(predicate func(string) bool) error {
+func (s *Service) PruneEntries(predicate func(string) bool, wlock *sync.Mutex) error {
 	unwantedIds := make([]any, 0, 500)
 	cursor := int64(math.MaxInt64)
 	for cursor > 0 {
-		rows, err := s.getFeedItemsStmt.Query(cursor, 500)
-		if err != nil {
-			return err
-		}
-		var uri string
-		for rows.Next() {
-			if err := rows.Scan(&cursor, &uri); err != nil {
-				rows.Close()
+		unwantedIds = unwantedIds[:0]
+		err := func() error {
+			rows, err := s.getFeedItemsStmt.Query(cursor, 500)
+			if err != nil {
 				return err
 			}
-			if predicate(uri) {
-				unwantedIds = append(unwantedIds, cursor)
+			defer rows.Close()
+			var uri string
+			for rows.Next() {
+				if err := rows.Scan(&cursor, &uri); err != nil {
+					return err
+				}
+				if predicate(uri) {
+					unwantedIds = append(unwantedIds, cursor)
+				}
 			}
-		}
 
-		if len(unwantedIds) == 0 {
+			if len(unwantedIds) == 0 {
+				return nil
+			}
+
+			wlock.Lock()
+			defer wlock.Unlock()
+			_, err = s.wdb.Exec(
+				"DELETE FROM feed_list WHERE id IN (?"+
+					strings.Repeat(",?", len(unwantedIds)-1)+
+					")",
+				unwantedIds...,
+			)
+			if err != nil {
+				return err
+			}
 			return nil
-		}
-
-		_, err = s.wdb.Exec(
-			"DELETE FROM feed_list WHERE id IN (?"+
-				strings.Repeat(",?", len(unwantedIds)-1)+
-				")",
-			unwantedIds...,
-		)
+		}()
 		if err != nil {
 			return err
 		}
-		unwantedIds = unwantedIds[:0]
 	}
 	return nil
 }

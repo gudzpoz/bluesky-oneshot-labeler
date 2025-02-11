@@ -51,13 +51,11 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		bloomApprox: latest,
 		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
 		blockList:   blockList,
-		listUpdated: make(chan bool),
+		listUpdated: make(chan bool, 1),
 
 		persistQueue: make(chan string, runtime.NumCPU()*32),
 	}
-	blockList.SetNotifier(func() {
-		listener.listUpdated <- true
-	})
+	blockList.SetNotifier(listener.notifyListUpdated)
 
 	scheduler := parallel.NewScheduler(
 		runtime.NumCPU(), // language classification can be CPU intensive
@@ -72,6 +70,13 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 	listener.client = c
 
 	return listener, nil
+}
+
+func (l *JetstreamListener) notifyListUpdated() {
+	select {
+	case l.listUpdated <- true:
+	default:
+	}
 }
 
 func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event) error {
@@ -121,9 +126,7 @@ func (l *JetstreamListener) Persist(ctx context.Context, done chan bool) {
 			case <-l.listUpdated:
 				count++
 				if count%32 == 0 {
-					lock.Lock()
-					err := l.PruneBlockedEntries()
-					lock.Unlock()
+					err := l.PruneBlockedEntries(&lock)
 					if err != nil {
 						l.log.Error("failed to prune blocked entries", "err", err)
 					}
@@ -168,7 +171,7 @@ loop:
 	done <- true
 }
 
-func (l *JetstreamListener) PruneBlockedEntries() error {
+func (l *JetstreamListener) PruneBlockedEntries(lock *sync.Mutex) error {
 	l.log.Debug("pruning blocked entries")
 	return l.db.PruneEntries(func(compactUri string) bool {
 		i := strings.Index(compactUri, "/")
@@ -177,7 +180,7 @@ func (l *JetstreamListener) PruneBlockedEntries() error {
 		}
 		compactDid := strings.TrimPrefix(compactUri[:i], "did:")
 		return l.InBlockList(compactDid)
-	})
+	}, lock)
 }
 
 func (l *JetstreamListener) Run(ctx context.Context) chan bool {
@@ -239,7 +242,7 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 				}
 				filter.AddString(did)
 				if label == nil {
-					l.listUpdated <- true
+					l.notifyListUpdated()
 				}
 				return nil
 			})
