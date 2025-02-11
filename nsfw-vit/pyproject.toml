@@ -1,0 +1,39 @@
+[project]
+name = "nsfw-vit"
+version = "0.1.0"
+description = "Tiny wrapper running AdamCodd/vit-base-nsfw-detector for nsfw image detection service"
+authors = [
+    {name = "gudzpoz", email = "gudzpoz@live.com"},
+]
+dependencies = ["transformers>=4.48.3", "Pillow>=11.1.0", "pytest>=8.3.4", "torch>=2.6.0"]
+requires-python = ">=3.10,<3.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+nsfw-vit = "nsfw_vit.__main__:main"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.resolution]
+respect-source-order = true
+
+[[tool.pdm.source]]
+name = "torch"
+url = "https://download.pytorch.org/whl/cpu"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true

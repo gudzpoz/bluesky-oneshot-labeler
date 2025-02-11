@@ -227,7 +227,7 @@ func (l *LabelListener) startPersistSeq(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(10 * time.Second):
+		case <-time.After(1 * time.Minute):
 			err := l.persistSeq()
 			if err != nil {
 				l.log.Warn("failed to persist label cursor", "err", err)
