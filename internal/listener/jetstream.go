@@ -189,6 +189,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 			l.log.Debug("connecting to jetstream in 1 second")
 			select {
 			case <-ctx.Done():
+				l.client.Scheduler.Shutdown()
 				l.log.Info("context done, jetstream stopped, now stopping persist")
 				cancelPersist()
 				return
