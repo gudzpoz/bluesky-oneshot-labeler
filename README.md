@@ -8,16 +8,17 @@ it might be best to mark their whole account as not-suitable.
 This labeler lets you specify a upstream labeling services,
 and marks the posters of NSFW/sensitive contents as not-suitable.
 
+Also, this labeler provides a feed that blocks NSFW/sensitive contents
+using the extracted user labels. Have a look at [@oneshot.iroiro.party]
+for an example.
+
+[@oneshot.iroiro.party]: https://bsky.app/profile/oneshot.iroiro.party/feed/oneshot
+
 ## Getting Started
 
 These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
 
-## MakeFile
-
-Run build make command with tests
-```bash
-make all
-```
+### MakeFile
 
 Build the application
 ```bash
@@ -26,20 +27,10 @@ make build
 
 Run the application
 ```bash
-make run
+go run cmd/api/main.go
 ```
 
-Live reload the application:
-```bash
-make watch
-```
+### Config
 
-Run the test suite:
-```bash
-make test
-```
-
-Clean up binary from the last build:
-```bash
-make clean
-```
+Please have a look at [`.env.example`](./.env.example) for the configuration.
+Copy it to `.env` and edit it according to your environment.

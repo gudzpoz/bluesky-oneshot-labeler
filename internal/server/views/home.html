@@ -4,12 +4,13 @@
   </head>
   <body>
     <h1>Oneshot Labeler</h1>
+    <h2>Labeler</h2>
     <p>
       This website hosts a simple
       <a href="https://docs.bsky.app/docs/advanced-guides/moderation#labelers">Bluesky labeler</a>
       available at <a href="https://bsky.app/profile/{{.User}}">@{{.User}}</a>.
     </p>
-    <h2>What It Does</h2>
+    <h3>What It Does</h3>
     <p>
       Basically, it reads the labels from
       <a href="https://bsky.app/profile/{{.Upstream}}">@{{.Upstream}}</a>,
@@ -18,5 +19,15 @@
       and labels them as such on a <strong>user-wise basis</strong>.
       Check out <a href="https://bsky.app/profile/{{.User}}">{{.User}}</a> for more info.
     </p>
+    <h2>Feed</h2>
+    <p>
+      We also provides a feed that excludes posts from said users (plus a curated block list).
+      You (probably) can find it at
+      <a href="https://bsky.app/profile/{{.User}}/feed/oneshot">{{.User}}/feed/oneshot</a>.
+    </p>
+    <h2>Source Code</h2>
+    <p>
+      The source code is available at
+      <a href="https://github.com/gudzpoz/bluesky-oneshot-labeler">gudzpoz/bluesky-oneshot-labeler</a>.
   </body>
 </html>
