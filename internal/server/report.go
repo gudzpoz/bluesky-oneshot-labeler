@@ -108,7 +108,8 @@ func (s *FiberServer) writeToBlockListCsv(did string, reasonType, reason *string
 	}
 	defer f.Close()
 
-	line := did + "," + escapeCsvString(reasonType) + "," + escapeCsvString(reason) + "\n"
+	typeStr := escapeCsvString(reasonType)
+	line := did + "," + typeStr + "," + escapeCsvString(reason) + "\n"
 
 	if _, err := f.WriteString(line); err != nil {
 		s.log.Error("failed to write to blocklist csv file", "err", err)
@@ -119,5 +120,5 @@ func (s *FiberServer) writeToBlockListCsv(did string, reasonType, reason *string
 		return
 	}
 
-	s.log.Info("added to blocklist csv", "did", did, "type", reasonType)
+	s.log.Info("added to blocklist csv", "did", did, "type", typeStr)
 }

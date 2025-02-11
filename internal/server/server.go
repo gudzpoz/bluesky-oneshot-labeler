@@ -78,10 +78,10 @@ func (s *FiberServer) gracefulShutdown(ctx context.Context, done chan bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.ShutdownWithContext(ctx); err != nil {
-		s.log.Error("Server forced to shutdown with error: %v", "err", err)
+		s.log.Error("server forced to shutdown with error", "err", err)
 	}
 
-	s.log.Info("Server exiting")
+	s.log.Info("server exiting")
 
 	// Notify the main goroutine that the shutdown is complete
 	done <- true

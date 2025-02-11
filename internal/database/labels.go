@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Service) prepareLabelStatements() error {
-	stmt, err := s.db.Prepare(
+	stmt, err := s.wdb.Prepare(
 		"INSERT INTO user (did) VALUES (?)" +
 			" ON CONFLICT (did) DO UPDATE SET uid = uid RETURNING uid",
 	)
@@ -16,7 +16,7 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.insertUserStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.wdb.Prepare(
 		"INSERT INTO block_list (uid, kind, cts, count) VALUES (?, ?, ?, 1)" +
 			" ON CONFLICT (uid, kind) DO UPDATE SET count = count + 1" +
 			" RETURNING id, count",
@@ -26,7 +26,7 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.incrementCounterStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.rdb.Prepare(
 		"SELECT id FROM block_list ORDER BY id DESC LIMIT 1",
 	)
 	if err != nil {
@@ -34,7 +34,7 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.lastLabelIdStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.rdb.Prepare(
 		"SELECT id, u.did, kind, cts FROM block_list l" +
 			" JOIN user u ON l.uid = u.uid" +
 			" WHERE ? < id AND id <= ?" +
@@ -45,7 +45,7 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.queryLabelsSinceStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.rdb.Prepare(
 		"SELECT count(*) FROM user WHERE did = ? LIMIT 1",
 	)
 	if err != nil {
@@ -116,7 +116,7 @@ func (s *Service) QueryLabels(input *QueryLabelsInput) ([]Label, error) {
 	sql.WriteString(" ORDER BY id ASC LIMIT ?")
 	params = append(params, input.Limit)
 
-	rows, err := s.db.Query(sql.String(), params...)
+	rows, err := s.rdb.Query(sql.String(), params...)
 	if err != nil {
 		return nil, err
 	}

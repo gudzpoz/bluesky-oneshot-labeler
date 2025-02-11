@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) prepareFeedStatements() error {
-	stmt, err := s.db.Prepare(
+	stmt, err := s.wdb.Prepare(
 		"INSERT INTO feed_list (uri, cts) VALUES (?, ?)",
 	)
 	if err != nil {
@@ -16,7 +16,7 @@ func (s *Service) prepareFeedStatements() error {
 	}
 	s.insertFeedItemStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.rdb.Prepare(
 		"SELECT id, uri FROM feed_list WHERE id < ? ORDER BY id DESC LIMIT ?",
 	)
 	if err != nil {
@@ -24,7 +24,7 @@ func (s *Service) prepareFeedStatements() error {
 	}
 	s.getFeedItemsStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.rdb.Prepare(
 		"SELECT id FROM feed_list WHERE cts >= ? ORDER BY id ASC LIMIT 1",
 	)
 	if err != nil {
@@ -32,7 +32,7 @@ func (s *Service) prepareFeedStatements() error {
 	}
 	s.scanFirstRecentIdStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.wdb.Prepare(
 		"DELETE FROM feed_list WHERE id < ?",
 	)
 	if err != nil {
@@ -40,7 +40,7 @@ func (s *Service) prepareFeedStatements() error {
 	}
 	s.pruneFeedEntriesStmt = stmt
 
-	stmt, err = s.db.Prepare(
+	stmt, err = s.wdb.Prepare(
 		"PRAGMA incremental_vacuum",
 	)
 	if err != nil {
@@ -117,7 +117,7 @@ func (s *Service) PruneEntries(predicate func(string) bool) error {
 			return nil
 		}
 
-		_, err = s.db.Exec(
+		_, err = s.wdb.Exec(
 			"DELETE FROM feed_list WHERE id IN (?"+
 				strings.Repeat(",?", len(unwantedIds)-1)+
 				")",

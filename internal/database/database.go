@@ -13,7 +13,8 @@ import (
 )
 
 type Service struct {
-	db  *sql.DB
+	rdb *sql.DB
+	wdb *sql.DB
 	log *slog.Logger
 
 	insertUserStmt       *sql.Stmt
@@ -39,26 +40,40 @@ func InitDatabase(logger *slog.Logger) error {
 	}
 
 	initDb := false
+	read_url := ""
 	if url == ":memory:" {
 		initDb = true
 	} else {
 		if _, err := os.Stat(url); os.IsNotExist(err) {
 			initDb = true
 		}
-		url = "file:" + url + "?mode=rwc&_journal=WAL&_txlock=immediate&_vacuum=incremental&_timeout=5000"
+		url = "file:" + url + "?_journal=WAL&_txlock=immediate&_vacuum=incremental&_timeout=5000"
+		read_url = url + "&mode=ro"
+		url = url + "&mode=rwc"
 	}
 
-	db, err := sql.Open("sqlite3", url)
+	wdb, err := sql.Open("sqlite3", url)
 	if err != nil {
 		return err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-	db.SetConnMaxIdleTime(0)
+	wdb.SetMaxOpenConns(1)
+	wdb.SetMaxIdleConns(1)
+	wdb.SetConnMaxLifetime(0)
+	wdb.SetConnMaxIdleTime(0)
+
+	var rdb *sql.DB
+	if read_url == "" {
+		rdb = wdb
+	} else {
+		rdb, err = sql.Open("sqlite3", read_url)
+		if err != nil {
+			return err
+		}
+	}
 
 	dbInstance = &Service{
-		db:  db,
+		rdb: rdb,
+		wdb: wdb,
 		log: logger,
 	}
 	if initDb {
@@ -85,8 +100,14 @@ func InitDatabase(logger *slog.Logger) error {
 }
 
 func Close() error {
-	err := dbInstance.db.Close()
+	instance := dbInstance
 	dbInstance = nil
+	err := instance.wdb.Close()
+	if err != nil {
+		instance.rdb.Close()
+		return err
+	}
+	err = instance.rdb.Close()
 	return err
 }
 
@@ -101,7 +122,7 @@ var dbVersion = 1
 
 func (s *Service) init() error {
 	for _, line := range strings.Split(schemaSql, ";") {
-		_, err := s.db.Exec(line)
+		_, err := s.wdb.Exec(line)
 		if err != nil {
 			return err
 		}
@@ -120,7 +141,7 @@ func (s *Service) upgrade() error {
 	}
 
 	try := func(nextVer int, sqls ...string) error {
-		tx, err := s.db.Begin()
+		tx, err := s.wdb.Begin()
 		if err != nil {
 			return err
 		}
@@ -142,7 +163,7 @@ func (s *Service) upgrade() error {
 	switch ver {
 	case 0:
 		// Change to incremental vacuum
-		if _, err := s.db.Exec("VACUUM"); err != nil {
+		if _, err := s.wdb.Exec("VACUUM"); err != nil {
 			return err
 		}
 		if err := try(1,
@@ -170,7 +191,7 @@ func (s *Service) upgrade() error {
 
 func (s *Service) GetConfig(key string, defaultValue string) (string, error) {
 	var value string
-	err := s.db.QueryRow("SELECT value FROM config WHERE key = ?", key).Scan(&value)
+	err := s.rdb.QueryRow("SELECT value FROM config WHERE key = ?", key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return defaultValue, nil
 	}
@@ -179,7 +200,7 @@ func (s *Service) GetConfig(key string, defaultValue string) (string, error) {
 
 func (s *Service) SetConfig(key string, value string) error {
 	s.log.Debug("set config", "key", key, "value", value)
-	_, err := s.db.Exec(
+	_, err := s.wdb.Exec(
 		"INSERT INTO config (key, value) VALUES (?, ?)"+
 			" ON CONFLICT (key) DO UPDATE SET value = ?",
 		key, value, value,
@@ -200,13 +221,4 @@ func (s *Service) GetConfigInt(key string, defaultValue int64) (int64, error) {
 
 func (s *Service) SetConfigInt(key string, value int64) error {
 	return s.SetConfig(key, strconv.FormatInt(value, 10))
-}
-
-// Close closes the database connection.
-// It logs a message indicating the disconnection from the specific database.
-// If the connection is successfully closed, it returns nil.
-// If an error occurs while closing the connection, it returns the error.
-func (s *Service) Close() error {
-	s.log.Info("Disconnected from database", "database", databaseFile)
-	return s.db.Close()
 }
