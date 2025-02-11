@@ -2,6 +2,7 @@ package server
 
 import (
 	"bluesky-oneshot-labeler/internal/at_utils"
+	"bluesky-oneshot-labeler/internal/listener"
 	"math"
 	"strconv"
 	"strings"
@@ -75,7 +76,7 @@ func (s *FiberServer) GetFeedSkeletonHandler(c *fiber.Ctx) error {
 		splits := strings.SplitN(uri, "/", 2)
 		did := splits[0]
 		compactDid := strings.TrimPrefix(did, "did:")
-		if s.blocker.InBlockList(compactDid) {
+		if s.blocker.InBlockList(compactDid) != listener.OutOfBlockList {
 			continue
 		}
 		uri = "at://" + did + "/app.bsky.feed.post/" + splits[1]

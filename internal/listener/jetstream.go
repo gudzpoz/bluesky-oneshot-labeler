@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
@@ -18,6 +19,16 @@ import (
 	"github.com/bluesky-social/jetstream/pkg/client/schedulers/parallel"
 	"github.com/bluesky-social/jetstream/pkg/models"
 )
+
+type FeedStats struct {
+	StartedAt time.Time
+
+	ItemsReceived        atomic.Int64
+	ItemsPersisted       atomic.Int64
+	ItemsBlockedByDb     atomic.Int64
+	ItemsBlockedByCsv    atomic.Int64
+	ItemsBlockedByFilter atomic.Int64
+}
 
 type JetstreamListener struct {
 	log *slog.Logger
@@ -31,6 +42,8 @@ type JetstreamListener struct {
 	blockList    *BlockListInSync
 	listUpdated  chan bool
 	persistQueue chan string
+
+	Stats FeedStats
 }
 
 func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, logger *slog.Logger) (*JetstreamListener, error) {
@@ -54,6 +67,10 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		listUpdated: make(chan bool, 1),
 
 		persistQueue: make(chan string, runtime.NumCPU()*32),
+
+		Stats: FeedStats{
+			StartedAt: time.Now().UTC(),
+		},
 	}
 	blockList.SetNotifier(listener.notifyListUpdated)
 
@@ -80,6 +97,7 @@ func (l *JetstreamListener) notifyListUpdated() {
 }
 
 func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event) error {
+	l.Stats.ItemsReceived.Add(1)
 	if event.Kind != "commit" || event.Commit == nil {
 		return nil
 	}
@@ -97,6 +115,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	}
 
 	if !l.ShouldKeepFeedItem(&post) {
+		l.Stats.ItemsBlockedByFilter.Add(1)
 		return nil
 	}
 
@@ -104,7 +123,14 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	if l.blockList.Contains(compactDid) {
 		return nil
 	}
-	if l.InBlockList(compactDid) {
+	blockList := l.InBlockList(compactDid)
+	if blockList != OutOfBlockList {
+		switch blockList {
+		case BlockListDb:
+			l.Stats.ItemsBlockedByDb.Add(1)
+		case BlockListCsv:
+			l.Stats.ItemsBlockedByCsv.Add(1)
+		}
 		return nil
 	}
 
@@ -144,7 +170,9 @@ loop:
 			lock.Lock()
 			err := l.db.InsertFeedItem(uri)
 			lock.Unlock()
-			if err != nil {
+			if err == nil {
+				l.Stats.ItemsPersisted.Add(1)
+			} else {
 				l.log.Error("failed to insert feed item", "uri", uri, "err", err)
 			}
 			if count%100 == 0 {
@@ -179,7 +207,7 @@ func (l *JetstreamListener) PruneBlockedEntries(lock *sync.Mutex) error {
 			return false
 		}
 		compactDid := strings.TrimPrefix(compactUri[:i], "did:")
-		return l.InBlockList(compactDid)
+		return l.InBlockList(compactDid) != OutOfBlockList
 	}, lock)
 }
 
@@ -242,6 +270,7 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 				}
 				filter.AddString(did)
 				if label == nil {
+					l.log.Debug("adding to db filter", "did", did)
 					l.notifyListUpdated()
 				}
 				return nil
@@ -261,18 +290,28 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 	}
 }
 
-func (l *JetstreamListener) InBlockList(did string) bool {
+const (
+	OutOfBlockList = 0
+	BlockListDb    = 1
+	BlockListCsv   = 2
+)
+
+func (l *JetstreamListener) InBlockList(did string) int {
+	l.log.Debug("checking if in block list", "did", did)
 	if l.blockList.Contains(did) {
-		return true
+		return BlockListCsv
 	}
 
 	if !l.bloomFilter.TestString(did) {
-		return false
+		return OutOfBlockList
 	}
 	labeled, err := l.db.IsUserLabeled(did)
 	if err != nil {
 		l.log.Error("failed to check if user is labeled", "err", err)
-		return false
+		return OutOfBlockList
 	}
-	return labeled
+	if labeled {
+		return BlockListDb
+	}
+	return OutOfBlockList
 }

@@ -52,6 +52,7 @@ func (s *FiberServer) HealthHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"version": at_utils.AtProtoVersion,
 		"latest":  id,
+		"stats":   &s.blocker.Stats,
 	})
 }
 
