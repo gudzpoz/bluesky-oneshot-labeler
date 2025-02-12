@@ -107,6 +107,8 @@ type nsfwVitResult struct {
 	Error string  `json:"error"`
 }
 
+var nsfwLogger = slog.Default().WithGroup("nsfw-vit")
+
 func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int) costlyfeedFilter {
 	limit := semaphore.NewWeighted(int64(maxConns))
 	return func(ctx context.Context, post *bsky.FeedPost, did string) bool {
@@ -130,31 +132,32 @@ func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int
 			strings.NewReader(strings.Join(imageUrls, "\n")),
 		)
 		if err != nil {
-			slog.Warn("failed to create NSFW filter request")
+			nsfwLogger.Warn("failed to create NSFW filter request")
 			return true
 		}
 		req.Header.Set("Content-Type", "text/plain")
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			slog.Warn("failed to query NSFW filter")
+			nsfwLogger.Warn("failed to query NSFW filter")
 			return true
 		}
 		if res.StatusCode != http.StatusOK {
-			slog.Warn("failed to query NSFW filter", "status", res.Status)
+			nsfwLogger.Warn("failed to query NSFW filter", "status", res.Status)
 			return true
 		}
 		defer res.Body.Close()
 		var results []nsfwVitResult
 		if err := json.NewDecoder(res.Body).Decode(&results); err != nil {
-			slog.Warn("failed to decode NSFW filter response")
+			nsfwLogger.Warn("failed to decode NSFW filter response")
 			return true
 		}
-		for _, result := range results {
+		for i, result := range results {
 			if result.Error != "" {
-				slog.Warn("failed to query NSFW filter", "error", result.Error)
+				nsfwLogger.Warn("failed to query NSFW filter", "error", result.Error)
 				continue
 			}
 			if result.Nsfw > nsfwThreshold && result.Nsfw-result.Sfw > minDiff {
+				nsfwLogger.Debug("NSFW filter blocked post", "img", imageUrls[i])
 				return false
 			}
 		}

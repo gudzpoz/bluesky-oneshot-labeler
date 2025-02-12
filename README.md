@@ -1,5 +1,34 @@
 # bluesky-oneshot-labeler
 
+```text
+   +----------------------------------------------+    +----------------------------------------+
+   | Upstream labeler (e.g. @moderation.bsky.app) |    | Moderation reports (from an allowlist) |
+   +---------------------+------------------------+    +-------------------+--------------------+
+                         |                                 -------/        | MODERATOR_HANDLES
+                         | Post-wise labels       --------/ (Bluesky UI)   |
+                        \|/               -------/                         |
+              +----------+----------+----/  Writes to         +------------+-------------+
+              |     This labeler    |------------------------>| External CSV file (DIDs) |
+              +----------+----------+                         +------------+-------------+
+                         |                                                 | EXTERNAL_BLOCK_LIST
+                         | User-wise labels                                |
+                        \|/                                               \|/
+             +-----------+----------+                     +----------------+----------------+
+             |    User block list   |--------+------------+ Manually maintained block list  |
+             +----------------------+        |            +---------------------------------+
+                                             |
+                                             |            +--------------------+
+                                             +------------+ Customized filters | feed_filter_user.go
+                                             |            +--------------------+
+                                             |            +------------------------+
+                                             +------------+ vit-base-nsfw-detector | nsfw-vit/
+                                             |            +------------------------+
+                            +----------------+----------------+
+                            |                                 |
+                            |       Hopefully SFW Feed?       |
+                            +---------------------------------+
+```
+
 Labeling services like [@moderation.bsky.app](https://bsky.app/profile/moderation.bsky.app)
 usually label contents on a per-post basis.
 However, for those who never label their NSFW/sensitive contents,
