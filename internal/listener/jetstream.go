@@ -20,14 +20,26 @@ import (
 	"github.com/bluesky-social/jetstream/pkg/models"
 )
 
+type SerializableInt64 atomic.Int64
+
 type FeedStats struct {
 	StartedAt time.Time
 
-	ItemsReceived        atomic.Int64
-	ItemsPersisted       atomic.Int64
-	ItemsBlockedByDb     atomic.Int64
-	ItemsBlockedByCsv    atomic.Int64
-	ItemsBlockedByFilter atomic.Int64
+	ItemsReceived        SerializableInt64
+	ItemsPersisted       SerializableInt64
+	ItemsBlockedByDb     SerializableInt64
+	ItemsBlockedByCsv    SerializableInt64
+	ItemsBlockedByFilter SerializableInt64
+}
+
+func (i *SerializableInt64) MarshalJSON() ([]byte, error) {
+	return json.Marshal((*atomic.Int64)(i).Load())
+}
+func (i *SerializableInt64) Inc() {
+	(*atomic.Int64)(i).Add(1)
+}
+func (i *SerializableInt64) Load() int64 {
+	return (*atomic.Int64)(i).Load()
 }
 
 type JetstreamListener struct {
@@ -97,7 +109,7 @@ func (l *JetstreamListener) notifyListUpdated() {
 }
 
 func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event) error {
-	l.Stats.ItemsReceived.Add(1)
+	l.Stats.ItemsReceived.Inc()
 	if event.Kind != "commit" || event.Commit == nil {
 		return nil
 	}
@@ -116,7 +128,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 
 	did := event.Did
 	if !l.ShouldKeepFeedItem(&post, did) {
-		l.Stats.ItemsBlockedByFilter.Add(1)
+		l.Stats.ItemsBlockedByFilter.Inc()
 		return nil
 	}
 
@@ -128,15 +140,15 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	if blockList != OutOfBlockList {
 		switch blockList {
 		case BlockListDb:
-			l.Stats.ItemsBlockedByDb.Add(1)
+			l.Stats.ItemsBlockedByDb.Inc()
 		case BlockListCsv:
-			l.Stats.ItemsBlockedByCsv.Add(1)
+			l.Stats.ItemsBlockedByCsv.Inc()
 		}
 		return nil
 	}
 
 	if !l.ShouldKeepFeedItemCostly(ctx, &post, did) {
-		l.Stats.ItemsBlockedByFilter.Add(1)
+		l.Stats.ItemsBlockedByFilter.Inc()
 		return nil
 	}
 
@@ -177,7 +189,7 @@ loop:
 			err := l.db.InsertFeedItem(uri)
 			lock.Unlock()
 			if err == nil {
-				l.Stats.ItemsPersisted.Add(1)
+				l.Stats.ItemsPersisted.Inc()
 			} else {
 				l.log.Error("failed to insert feed item", "uri", uri, "err", err)
 			}
