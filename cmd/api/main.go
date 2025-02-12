@@ -61,7 +61,7 @@ func initGlobals(level slog.Level) error {
 	logger = slog.Default()
 
 	background, backgroundStop = signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	startupCtx, startupStop = context.WithTimeout(background, 10*time.Second)
+	startupCtx, startupStop = context.WithTimeout(background, 30*time.Second)
 
 	if err := database.InitDatabase(logger.WithGroup("database")); err != nil {
 		logger.Error("failed to init database", "err", err)

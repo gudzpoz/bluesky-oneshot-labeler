@@ -126,12 +126,12 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 		return nil
 	}
 
-	did := event.Did
-	if !l.ShouldKeepFeedItem(&post, did) {
+	if !l.ShouldKeepFeedItem(&post) {
 		l.Stats.ItemsBlockedByFilter.Inc()
 		return nil
 	}
 
+	did := event.Did
 	compactDid := strings.TrimPrefix(did, "did:")
 	if l.blockList.Contains(compactDid) {
 		return nil

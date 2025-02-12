@@ -14,8 +14,10 @@ var feedFilters = []feedFilter{
 	IsNotComment,                 // filter out comments
 	IsLangs("zh"),                // only show posts of certain languages
 	IsLinguaLang(lingua.Chinese), // handle mis-classified posts from IsLang
-	MaxTagCount(8),               // filter out posts with too many tags (probably spams)
-	HasNoTags("nsfw"),            // filter out posts with a certain tag (case-insensitive)
+
+	ExtractTags,       // extract tags from post, necessary for HasNoTags, MaxTagCount, etc.
+	MaxTagCount(8),    // filter out posts with too many tags (probably spams)
+	HasNoTags("nsfw"), // filter out posts with a certain tag (case-insensitive)
 }
 
 // Used by IsLinguaLang

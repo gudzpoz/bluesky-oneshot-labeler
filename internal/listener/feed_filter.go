@@ -36,6 +36,18 @@ func IsLangs(langs ...string) feedFilter {
 	}
 }
 
+func ExtractTags(post *bsky.FeedPost) bool {
+	for _, facet := range post.Facets {
+		for _, feature := range facet.Features {
+			tag := feature.RichtextFacet_Tag
+			if tag != nil {
+				post.Tags = append(post.Tags, tag.Tag)
+			}
+		}
+	}
+	return true
+}
+
 var textNormalizer = transform.Chain(norm.NFKD, runes.Remove(runes.In(unicode.Mn)), norm.NFKC)
 
 func normalizeText(text string) string {
@@ -107,9 +119,8 @@ type nsfwVitResult struct {
 	Error string  `json:"error"`
 }
 
-var nsfwLogger = slog.Default().WithGroup("nsfw-vit")
-
 func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int) costlyfeedFilter {
+	nsfwLogger := slog.Default().WithGroup("nsfw-vit")
 	limit := semaphore.NewWeighted(int64(maxConns))
 	return func(ctx context.Context, post *bsky.FeedPost, did string) bool {
 		if post.Embed == nil || post.Embed.EmbedImages == nil {
@@ -165,7 +176,7 @@ func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int
 	}
 }
 
-func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost, did string) bool {
+func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost) bool {
 	for _, filter := range feedFilters {
 		if !filter(post) {
 			return false
