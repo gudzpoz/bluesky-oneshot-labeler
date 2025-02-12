@@ -1,38 +1,53 @@
 package listener
 
 import (
-	"slices"
+	"strings"
+	"unicode"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/pemistahl/lingua-go"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
-
-type feedFilter func(*bsky.FeedPost) bool
-
-var feedFilters []feedFilter = []feedFilter{
-	IsNotComment,
-	IsLang("zh"),
-	IsLinguaLang(lingua.Chinese),
-	HasNoTag("NSFW"),
-}
 
 func IsNotComment(post *bsky.FeedPost) bool {
 	return post.Reply == nil
 }
 
-func IsLang(lang string) feedFilter {
+func IsLangs(langs ...string) feedFilter {
+	langSet := make(map[string]struct{})
+	for _, lang := range langs {
+		langSet[lang] = struct{}{}
+	}
 	return func(post *bsky.FeedPost) bool {
-		return slices.Contains(post.Langs, "zh")
+		for _, lang := range post.Langs {
+			if _, ok := langSet[lang]; ok {
+				return true
+			}
+		}
+		return false
 	}
 }
 
-func HasTag(tag ...string) feedFilter {
+var textNormalizer = transform.Chain(norm.NFKD, runes.Remove(runes.In(unicode.Mn)), norm.NFKC)
+
+func normalizeText(text string) string {
+	normalized, _, err := transform.String(textNormalizer, text)
+	if err != nil {
+		normalized = text
+	}
+	return strings.ToLower(normalized)
+}
+
+func HasAnyTag(tags ...string) feedFilter {
 	tagSet := make(map[string]struct{})
-	for _, t := range tag {
-		tagSet[t] = struct{}{}
+	for _, tag := range tags {
+		tagSet[normalizeText(tag)] = struct{}{}
 	}
 	return func(post *bsky.FeedPost) bool {
 		for _, t := range post.Tags {
+			t = normalizeText(t)
 			if _, ok := tagSet[t]; ok {
 				return true
 			}
@@ -41,23 +56,18 @@ func HasTag(tag ...string) feedFilter {
 	}
 }
 
-func HasNoTag(tag string) feedFilter {
+func HasNoTags(tags ...string) feedFilter {
+	f := HasAnyTag(tags...)
 	return func(post *bsky.FeedPost) bool {
-		return !slices.Contains(post.Tags, tag)
+		return !f(post)
 	}
 }
 
-// Used by IsLinguaLang
-var linguaLanguages = []lingua.Language{
-	lingua.Chinese,
-	lingua.Japanese,
-	lingua.Korean,
-	lingua.English,
+func MaxTagCount(max int) feedFilter {
+	return func(post *bsky.FeedPost) bool {
+		return len(post.Tags) <= max
+	}
 }
-var langDetector = lingua.NewLanguageDetectorBuilder().
-	FromLanguages(linguaLanguages...).
-	WithPreloadedLanguageModels().
-	Build()
 
 func IsLinguaLang(expected lingua.Language) feedFilter {
 	return func(post *bsky.FeedPost) bool {
