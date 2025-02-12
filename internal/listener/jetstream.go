@@ -114,12 +114,13 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 		return nil
 	}
 
-	if !l.ShouldKeepFeedItem(&post) {
+	did := event.Did
+	if !l.ShouldKeepFeedItem(&post, did) {
 		l.Stats.ItemsBlockedByFilter.Add(1)
 		return nil
 	}
 
-	compactDid := strings.TrimPrefix(event.Did, "did:")
+	compactDid := strings.TrimPrefix(did, "did:")
 	if l.blockList.Contains(compactDid) {
 		return nil
 	}
@@ -131,6 +132,11 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 		case BlockListCsv:
 			l.Stats.ItemsBlockedByCsv.Add(1)
 		}
+		return nil
+	}
+
+	if !l.ShouldKeepFeedItemCostly(ctx, &post, did) {
+		l.Stats.ItemsBlockedByFilter.Add(1)
 		return nil
 	}
 

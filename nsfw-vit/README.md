@@ -28,7 +28,8 @@ containing the NSFW probability for each image (string members are error message
 ({
   nsfw: number,
   sfw: number,
-} | string)[]
+  error?: string,
+})[]
 ```
 
 Use the accompanying [`user script`](./test_client.js) to send requests from the browser

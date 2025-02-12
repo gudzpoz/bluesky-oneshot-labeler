@@ -47,10 +47,10 @@
       const data = await res.json();
       data.forEach((item, i) => {
         let msg;
-        if (typeof item === 'string') {
-          msg = item;
+        const { nsfw, sfw, error } = item;
+        if (error) {
+          msg = error;
         } else {
-          const { nsfw, sfw } = item;
           const msgs = [`NSFW: ${nsfw.toFixed(2)}`, `SFW: ${sfw.toFixed(2)}`];
           const i = nsfw > sfw ? 0 : 1;
           msgs[i] = `<b>${msgs[i]}</b>`;

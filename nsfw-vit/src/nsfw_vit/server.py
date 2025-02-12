@@ -1,6 +1,7 @@
 import json
 import logging
 import signal
+import typing
 import urllib.parse
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -15,6 +16,10 @@ from nsfw_vit import NsfwVitDetector, NsfwResult
 _logger = logging.getLogger(__name__)
 _debug = _logger.debug
 _info = _logger.info
+
+
+class NsfwError(typing.TypedDict):
+    error: str
 
 
 class NsfwVitDetectorHandler(BaseHTTPRequestHandler):
@@ -80,13 +85,13 @@ class NsfwVitDetectorServer:
     def detect(self, images: list[Image.Image | Exception]):
         filtered = [image for image in images if isinstance(image, Image.Image)]
         filtered_results = [] if len(filtered) == 0 else self.detector.detect(filtered)
-        results: list[NsfwResult | str] = []
+        results: list[NsfwResult | NsfwError] = []
         result_iter = iter(filtered_results)
         for image in images:
             if isinstance(image, Image.Image):
                 results.append(next(result_iter))
             else:
-                results.append(f'{image}')
+                results.append(NsfwError(error=f'{image}'))
         return results
 
     def serve(self):

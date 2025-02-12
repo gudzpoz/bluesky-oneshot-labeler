@@ -1,11 +1,17 @@
 package listener
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
 	"strings"
 	"unicode"
 
 	"github.com/bluesky-social/indigo/api/bsky"
+	"github.com/bluesky-social/indigo/lex/util"
 	"github.com/pemistahl/lingua-go"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -90,9 +96,84 @@ func IsLinguaLang(expected lingua.Language) feedFilter {
 	}
 }
 
-func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost) bool {
+func cdnBskyAppUrl(did string, blobRef *util.LexLink) string {
+	return "https://cdn.bsky.app/img/feed_thumbnail/plain/" + did +
+		"/" + blobRef.String() + "@jpeg"
+}
+
+type nsfwVitResult struct {
+	Nsfw  float64 `json:"nsfw"`
+	Sfw   float64 `json:"sfw"`
+	Error string  `json:"error"`
+}
+
+func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int) costlyfeedFilter {
+	limit := semaphore.NewWeighted(int64(maxConns))
+	return func(ctx context.Context, post *bsky.FeedPost, did string) bool {
+		if post.Embed == nil || post.Embed.EmbedImages == nil {
+			return true
+		}
+		images := post.Embed.EmbedImages.Images
+		imageUrls := make([]string, len(images))
+		for i, img := range post.Embed.EmbedImages.Images {
+			url := cdnBskyAppUrl(did, &img.Image.Ref)
+			imageUrls[i] = url
+		}
+
+		if err := limit.Acquire(ctx, 1); err != nil {
+			return true
+		}
+		defer limit.Release(1)
+
+		req, err := http.NewRequestWithContext(
+			ctx, "POST", upstream,
+			strings.NewReader(strings.Join(imageUrls, "\n")),
+		)
+		if err != nil {
+			slog.Warn("failed to create NSFW filter request")
+			return true
+		}
+		req.Header.Set("Content-Type", "text/plain")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			slog.Warn("failed to query NSFW filter")
+			return true
+		}
+		if res.StatusCode != http.StatusOK {
+			slog.Warn("failed to query NSFW filter", "status", res.Status)
+			return true
+		}
+		defer res.Body.Close()
+		var results []nsfwVitResult
+		if err := json.NewDecoder(res.Body).Decode(&results); err != nil {
+			slog.Warn("failed to decode NSFW filter response")
+			return true
+		}
+		for _, result := range results {
+			if result.Error != "" {
+				slog.Warn("failed to query NSFW filter", "error", result.Error)
+				continue
+			}
+			if result.Nsfw > nsfwThreshold && result.Nsfw-result.Sfw > minDiff {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost, did string) bool {
 	for _, filter := range feedFilters {
 		if !filter(post) {
+			return false
+		}
+	}
+	return true
+}
+
+func (l *JetstreamListener) ShouldKeepFeedItemCostly(ctx context.Context, post *bsky.FeedPost, did string) bool {
+	for _, filter := range costlyFeedFilters {
+		if !filter(ctx, post, did) {
 			return false
 		}
 	}
