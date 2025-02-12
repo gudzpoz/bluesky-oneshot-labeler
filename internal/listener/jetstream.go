@@ -154,6 +154,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 
 	// uri := "at://" + event.Did + "/" + commit.Collection + "/" + commit.RKey
 	compactUri := event.Did + "/" + commit.RKey
+	l.log.Debug("keeping feed item", "uri", compactUri, "lang", post.Langs, "content", post.Text)
 	l.persistQueue <- compactUri
 	return nil
 }
@@ -315,7 +316,6 @@ const (
 )
 
 func (l *JetstreamListener) InBlockList(did string) int {
-	l.log.Debug("checking if in block list", "did", did)
 	if l.blockList.Contains(did) {
 		return BlockListCsv
 	}

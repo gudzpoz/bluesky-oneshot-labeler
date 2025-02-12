@@ -5,19 +5,26 @@ import (
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/pemistahl/lingua-go"
+	"golang.org/x/text/language"
 )
 
 type feedFilter func(*bsky.FeedPost) bool
 
 // Customize these to filter out unwanted posts
 var feedFilters = []feedFilter{
-	IsNotComment,                 // filter out comments
-	IsLangs("zh"),                // only show posts of certain languages
-	IsLinguaLang(lingua.Chinese), // handle mis-classified posts from IsLang
+	// filter out comments
+	IsNotComment,
+	// only show posts of certain languages (as is claimed by the author)
+	IsLangs(language.Chinese, language.English),
+	// handle mis-classified posts from IsLang by actually detecting content languages
+	IsLinguaLangs(lingua.Chinese),
 
-	ExtractTags,       // extract tags from post, necessary for HasNoTags, MaxTagCount, etc.
-	MaxTagCount(8),    // filter out posts with too many tags (probably spams)
-	HasNoTags("nsfw"), // filter out posts with a certain tag (case-insensitive)
+	// extract tags from post, necessary for HasNoTags, MaxTagCount, etc.
+	ExtractTags,
+	// filter out posts with too many tags (probably spams)
+	MaxTagCount(7),
+	// filter out posts with a certain tag (case-insensitive)
+	HasNoTags("nsfw"),
 }
 
 // Used by IsLinguaLang

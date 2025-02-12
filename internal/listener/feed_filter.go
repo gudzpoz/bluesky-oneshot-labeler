@@ -12,23 +12,32 @@ import (
 	"github.com/bluesky-social/indigo/lex/util"
 	"github.com/pemistahl/lingua-go"
 	"golang.org/x/sync/semaphore"
+	"golang.org/x/text/language"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 )
 
+func Not(filter feedFilter) feedFilter {
+	return func(post *bsky.FeedPost) bool {
+		return !filter(post)
+	}
+}
+
 func IsNotComment(post *bsky.FeedPost) bool {
 	return post.Reply == nil
 }
 
-func IsLangs(langs ...string) feedFilter {
-	langSet := make(map[string]struct{})
-	for _, lang := range langs {
-		langSet[lang] = struct{}{}
-	}
+func IsLangs(langs ...language.Tag) feedFilter {
+	matcher := language.NewMatcher(langs)
 	return func(post *bsky.FeedPost) bool {
 		for _, lang := range post.Langs {
-			if _, ok := langSet[lang]; ok {
+			tag, err := language.Parse(lang)
+			if err != nil {
+				continue
+			}
+			_, _, confidence := matcher.Match(tag)
+			if confidence != language.No {
 				return true
 			}
 		}
@@ -75,10 +84,7 @@ func HasAnyTag(tags ...string) feedFilter {
 }
 
 func HasNoTags(tags ...string) feedFilter {
-	f := HasAnyTag(tags...)
-	return func(post *bsky.FeedPost) bool {
-		return !f(post)
-	}
+	return Not(HasAnyTag(tags...))
 }
 
 func MaxTagCount(max int) feedFilter {
@@ -87,20 +93,29 @@ func MaxTagCount(max int) feedFilter {
 	}
 }
 
-func IsLinguaLang(expected lingua.Language) feedFilter {
+func IsLinguaLangs(expected ...lingua.Language) feedFilter {
+	langSet := make(map[lingua.Language]struct{})
+	wantsChinese := false
+	for _, lang := range expected {
+		langSet[lang] = struct{}{}
+		if lang == lingua.Chinese {
+			wantsChinese = true
+		}
+	}
+
 	return func(post *bsky.FeedPost) bool {
 		text := getPostText(post)
 		hasJapanese := false
 		langs := langDetector.DetectMultipleLanguagesOf(text)
 		for _, lang := range langs {
-			if lang.Language() == expected {
+			if _, ok := langSet[lang.Language()]; ok {
 				return true
 			}
-			if expected == lingua.Chinese && lang.Language() == lingua.Japanese {
+			if wantsChinese && lang.Language() == lingua.Japanese {
 				hasJapanese = true
 			}
 		}
-		if expected == lingua.Chinese && hasJapanese {
+		if wantsChinese && hasJapanese {
 			// Lingua mis-detections: https://github.com/pemistahl/lingua-go/issues/38
 			return hasChinese(text)
 		}
