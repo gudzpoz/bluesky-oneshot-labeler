@@ -107,16 +107,21 @@ func (s *Service) PruneEntries(predicate func(string) bool, wlock *sync.Mutex) e
 			}
 			defer rows.Close()
 			var uri string
+			empty := true
 			for rows.Next() {
 				if err := rows.Scan(&cursor, &uri); err != nil {
 					return err
 				}
+				empty = false
 				if predicate(uri) {
 					unwantedIds = append(unwantedIds, cursor)
 				}
 			}
 
 			if len(unwantedIds) == 0 {
+				if empty {
+					cursor = -1
+				}
 				return nil
 			}
 
