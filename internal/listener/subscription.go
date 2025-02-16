@@ -61,7 +61,7 @@ func (ln *LabelNotifier) Notify(label *database.Label) {
 
 	// event.Preserialize() does not support LabelLabels yet
 	var buf bytes.Buffer
-	if err := Serialize(event, &buf); err != nil {
+	if err := PreserializeEvent(event, &buf); err != nil {
 		ln.log.Error("Failed to preserialize label", "error", err)
 		return
 	}
@@ -73,8 +73,15 @@ func (ln *LabelNotifier) Notify(label *database.Label) {
 	}
 }
 
-func Serialize(event *events.XRPCStreamEvent, writer io.Writer) error {
+func PreserializeEvent(event *events.XRPCStreamEvent, writer io.Writer) error {
 	w := cbg.NewCborWriter(writer)
+	header := events.EventHeader{
+		Op:      events.EvtKindMessage,
+		MsgType: "#labels",
+	}
+	if err := header.MarshalCBOR(w); err != nil {
+		return err
+	}
 	if err := event.LabelLabels.MarshalCBOR(w); err != nil {
 		return err
 	}

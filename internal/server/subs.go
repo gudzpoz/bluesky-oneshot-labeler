@@ -61,7 +61,7 @@ func (s *FiberServer) writeEvent(c *websocket.Conn, event *events.XRPCStreamEven
 	if err != nil {
 		return err
 	}
-	if err := listener.Serialize(event, writer); err != nil {
+	if _, err := writer.Write(event.Preserialized); err != nil {
 		s.log.Error("failed to serialize event", "error", err)
 	}
 	return writer.Close()
