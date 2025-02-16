@@ -221,7 +221,9 @@ func SignRawLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, er
 	unsigned := labels.UnsignedLabel{
 		Cts: time.UnixMilli(cts).UTC().Format(time.RFC3339),
 		Src: at_utils.UserDid.String(),
-		Uri: "at://did:" + did,
+		// TODO: What on earth? `did:` is not a valid URI and the spec requires one,
+		//   and yet Bluesky AppView expects it to be there?
+		Uri: "did:" + did,
 		Val: val,
 		Ver: &at_utils.AtProtoVersion,
 	}
