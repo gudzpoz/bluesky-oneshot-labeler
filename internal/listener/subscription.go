@@ -31,13 +31,19 @@ type LabelNotifier struct {
 	log  *slog.Logger
 }
 
-func NewLabelNotifier(logger *slog.Logger) *LabelNotifier {
+func NewLabelNotifier(logger *slog.Logger) (*LabelNotifier, error) {
+	db := database.Instance()
+	latest, err := db.LatestLabelId()
+	if err != nil {
+		return nil, err
+	}
 	notifier := &LabelNotifier{
 		subs: make([]*Subscriber, 0),
 		log:  logger,
-		db:   database.Instance(),
+		db:   db,
 	}
-	return notifier
+	notifier.last.Store(latest)
+	return notifier, nil
 }
 
 func (ln *LabelNotifier) Notify(label *database.Label) {
@@ -61,7 +67,7 @@ func (ln *LabelNotifier) Notify(label *database.Label) {
 
 	// event.Preserialize() does not support LabelLabels yet
 	var buf bytes.Buffer
-	if err := PreserializeEvent(event, &buf); err != nil {
+	if err := SerializeEvent(event, &buf); err != nil {
 		ln.log.Error("Failed to preserialize label", "error", err)
 		return
 	}
@@ -73,7 +79,7 @@ func (ln *LabelNotifier) Notify(label *database.Label) {
 	}
 }
 
-func PreserializeEvent(event *events.XRPCStreamEvent, writer io.Writer) error {
+func SerializeEvent(event *events.XRPCStreamEvent, writer io.Writer) error {
 	w := cbg.NewCborWriter(writer)
 	header := events.EventHeader{
 		Op:      events.EvtKindMessage,
@@ -140,6 +146,7 @@ func (ln *LabelNotifier) ForAllLabelsSince(
 		}
 		latest = sub.since
 	}
+	ln.log.Debug("caught up, starting subscription")
 	defer ln.Unsubscribe(sub)
 
 	for {

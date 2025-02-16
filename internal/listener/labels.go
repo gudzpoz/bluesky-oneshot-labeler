@@ -94,13 +94,18 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 				}
 			}
 
+			notifier, err := NewLabelNotifier(logger.WithGroup("notifier"))
+			if err != nil {
+				return nil, err
+			}
+
 			listener := &LabelListener{
 				log:               logger,
 				labels:            buildLabelMapping(details.Policies),
 				serverUrl:         u,
 				db:                db,
 				offenderThreshold: offenderThreshold,
-				notifier:          NewLabelNotifier(logger.WithGroup("notifier")),
+				notifier:          notifier,
 			}
 			listener.cursor.Store(cursor)
 			listener.counter.Store(counter)
