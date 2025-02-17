@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -58,7 +59,8 @@ func InitDatabase(logger *slog.Logger) error {
 	}
 	wdb.SetMaxOpenConns(1)
 	wdb.SetMaxIdleConns(1)
-	wdb.SetConnMaxLifetime(0)
+	// Hopefully a finite lifetime lets SQLite set checkpoints and free up WAL space
+	wdb.SetConnMaxLifetime(time.Hour * 12)
 	wdb.SetConnMaxIdleTime(0)
 
 	var rdb *sql.DB
