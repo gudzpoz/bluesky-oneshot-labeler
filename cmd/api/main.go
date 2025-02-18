@@ -26,6 +26,7 @@ func main() {
 func mainInner() int {
 	debug := flag.Bool("debug", false, "enable debug logging")
 	publish := flag.Bool("publish", false, "publish labeler to user profile")
+	rebuild := flag.Bool("rebuild", false, "rebuild label metadata")
 	flag.Parse()
 
 	var level slog.Level
@@ -42,6 +43,8 @@ func mainInner() int {
 	var err error
 	if *publish {
 		err = publishLabeler()
+	} else if *rebuild {
+		err = rebuildLabels()
 	} else {
 		err = runServer()
 	}
@@ -109,6 +112,19 @@ func publishLabeler() error {
 		return err
 	}
 
+	return nil
+}
+
+func rebuildLabels() error {
+	subscription, err := listener.NewLabelListener(startupCtx, logger)
+	if err != nil {
+		logger.Error("failed to create listener", "err", err)
+		return err
+	}
+	if err := subscription.RebuildLabels(); err != nil {
+		logger.Error("failed to rebuild labels", "err", err)
+		return err
+	}
 	return nil
 }
 

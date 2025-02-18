@@ -63,6 +63,8 @@ type LabelListener struct {
 	offenderThreshold int64
 
 	notifier *LabelNotifier
+
+	rebuildingBound int64
 }
 
 func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener, error) {
@@ -213,10 +215,22 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 		whenMillis := when.UnixMilli()
 
-		info, err := l.db.IncrementCounter(uid, int(kind), rkey, whenMillis)
-		if err != nil {
-			l.log.Warn("failed to increment counter", "kind", kind, "did", did, "err", err)
-			continue
+		var info database.Pair
+		if l.rebuildingBound == 0 {
+			info, err = l.db.IncrementCounter(uid, int(kind), rkey, whenMillis)
+			if err != nil {
+				l.log.Warn("failed to increment counter", "kind", kind, "did", did, "err", err)
+				continue
+			}
+		} else {
+			if labels.Seq >= l.rebuildingBound {
+				// done, notify
+				info.Count = 1
+			}
+			if err := l.db.UpdateCounterRec(uid, int(kind), rkey); err != nil {
+				l.log.Warn("failed to update counter", "kind", kind, "uri", label.Uri, "err", err)
+				continue
+			}
 		}
 
 		var notify bool
@@ -264,6 +278,10 @@ func (l *LabelListener) startPersistSeq(ctx context.Context) {
 func (l *LabelListener) persistSeq() error {
 	cursor := l.cursor.Load()
 	counter := l.counter.Load()
+	if l.rebuildingBound != 0 {
+		l.log.Debug("rebuilding label cursor", "cursor", cursor, "bound", l.rebuildingBound)
+		return nil
+	}
 	l.log.Debug("persisting label cursor", "cursor", cursor, "counter", counter)
 	if err := l.db.SetConfigInt("label-cursor", cursor); err != nil {
 		return err
@@ -295,7 +313,11 @@ func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]La
 func uriToDid(uri string) (string, string, error) {
 	u, err := syntax.ParseATURI(uri)
 	if err == nil {
-		return u.Authority().String(), u.RecordKey().String(), nil
+		rkey := u.RecordKey().String()
+		if rkey == "" {
+			rkey = u.Path()
+		}
+		return u.Authority().String(), rkey, nil
 	}
 
 	if strings.HasPrefix(uri, "did:") {
@@ -307,4 +329,30 @@ func uriToDid(uri string) (string, string, error) {
 	}
 
 	return "", "", err
+}
+
+func (l *LabelListener) RebuildLabels() error {
+	bound, err := l.db.LatestLabelId()
+	if err != nil {
+		return err
+	}
+	l.rebuildingBound = bound
+	l.cursor.Store(0)
+	l.counter.Store(0)
+	sub := l.Notifier().Subscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-sub.done:
+				return
+			case <-sub.out:
+				return
+			}
+		}
+	}()
+	done := l.Run(ctx)
+	<-done
+	return nil
 }

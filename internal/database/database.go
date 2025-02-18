@@ -19,6 +19,7 @@ type Service struct {
 	log *slog.Logger
 
 	insertUserStmt       *sql.Stmt
+	updateCounterRecStmt *sql.Stmt
 	incrementCounterStmt *sql.Stmt
 	lastLabelIdStmt      *sql.Stmt
 	queryLabelsSinceStmt *sql.Stmt

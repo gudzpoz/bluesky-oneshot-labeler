@@ -17,6 +17,15 @@ func (s *Service) prepareLabelStatements() error {
 	s.insertUserStmt = stmt
 
 	stmt, err = s.wdb.Prepare(
+		`UPDATE block_list SET posts = jsonb_set(posts, concat('$.', json_quote(?)), jsonb('true'))
+		WHERE uid = ? AND kind = ?`,
+	)
+	if err != nil {
+		return err
+	}
+	s.updateCounterRecStmt = stmt
+
+	stmt, err = s.wdb.Prepare(
 		`INSERT INTO block_list (uid, kind, cts, count, posts)
 			VALUES (?, ?, ?, 1, jsonb_object(?, jsonb('true')))
 		ON CONFLICT (uid, kind) DO UPDATE
@@ -75,10 +84,15 @@ type Pair struct {
 	Count int64
 }
 
-func (s *Service) IncrementCounter(uid int64, kind int, rec string, unixMillis int64) (Pair, error) {
+func (s *Service) IncrementCounter(uid int64, kind int, rkey string, unixMillis int64) (Pair, error) {
 	var id, count int64
-	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis, rec, rec).Scan(&id, &count)
+	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis, rkey, rkey).Scan(&id, &count)
 	return Pair{id, count}, err
+}
+
+func (s *Service) UpdateCounterRec(uid int64, kind int, rkey string) error {
+	_, err := s.updateCounterRecStmt.Exec(rkey, uid, kind)
+	return err
 }
 
 type QueryLabelsInput struct {
