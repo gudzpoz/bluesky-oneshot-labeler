@@ -12,7 +12,8 @@ CREATE TABLE block_list (
   uid integer not null,
   kind integer not null,
   cts integer not null,
-  count integer not null
+  count integer not null,
+  posts blob not null
 );
 
 CREATE UNIQUE INDEX block_list_uid_kind ON block_list (uid, kind);

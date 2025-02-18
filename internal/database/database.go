@@ -120,7 +120,8 @@ func Instance() *Service {
 
 //go:embed schema.sql
 var schemaSql string
-var dbVersion = 1
+
+const dbVersion = 2
 
 func (s *Service) init() error {
 	for _, line := range strings.Split(schemaSql, ";") {
@@ -179,14 +180,19 @@ func (s *Service) upgrade() error {
 		}
 		fallthrough
 	case 1:
+		if err := try(2,
+			`ALTER TABLE block_list ADD posts blob not null default X''`,
+			`UPDATE block_list SET posts = jsonb('{}')`,
+		); err != nil {
+			return err
+		}
+		s.log.Info("Upgraded database to version", "version", dbVersion)
+		// no-fallthrough
+	case dbVersion:
 		s.log.Debug("No upgrade needed")
 	default:
 		s.log.Error("Unknown database version", "version", ver)
 		os.Exit(1)
-	}
-
-	if ver < dbVersion {
-		return s.SetConfig("dbversion", strconv.Itoa(dbVersion))
 	}
 	return nil
 }

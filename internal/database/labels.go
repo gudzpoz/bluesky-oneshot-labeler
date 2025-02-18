@@ -17,9 +17,13 @@ func (s *Service) prepareLabelStatements() error {
 	s.insertUserStmt = stmt
 
 	stmt, err = s.wdb.Prepare(
-		"INSERT INTO block_list (uid, kind, cts, count) VALUES (?, ?, ?, 1)" +
-			" ON CONFLICT (uid, kind) DO UPDATE SET count = count + 1" +
-			" RETURNING id, count",
+		`INSERT INTO block_list (uid, kind, cts, count, posts)
+			VALUES (?, ?, ?, 1, jsonb_object(?, jsonb('true')))
+		ON CONFLICT (uid, kind) DO UPDATE
+			SET count = count + 1,
+				posts = jsonb_set(posts, concat('$.', json_quote(?)), jsonb('true'))
+		RETURNING id, count
+		`,
 	)
 	if err != nil {
 		return err
@@ -71,9 +75,9 @@ type Pair struct {
 	Count int64
 }
 
-func (s *Service) IncrementCounter(uid int64, kind int, unixMillis int64) (Pair, error) {
+func (s *Service) IncrementCounter(uid int64, kind int, rec string, unixMillis int64) (Pair, error) {
 	var id, count int64
-	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis).Scan(&id, &count)
+	err := s.incrementCounterStmt.QueryRow(uid, kind, unixMillis, rec, rec).Scan(&id, &count)
 	return Pair{id, count}, err
 }
 

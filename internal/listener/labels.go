@@ -21,8 +21,10 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 )
 
+type LabelKind int
+
 const (
-	LabelPorn = iota
+	LabelPorn LabelKind = iota
 	LabelSexual
 	LabelNudity
 	LabelGraphicMedia
@@ -30,12 +32,30 @@ const (
 	LabelOffender
 )
 
+func (l LabelKind) String() (val string) {
+	switch l {
+	case LabelPorn:
+		val = at_utils.LabelPornString
+	case LabelSexual:
+		val = at_utils.LabelSexualString
+	case LabelNudity:
+		val = at_utils.LabelNudityString
+	case LabelGraphicMedia:
+		val = at_utils.LabelGraphicMediaString
+	case LabelOffender:
+		val = "offender"
+	default:
+		val = "others"
+	}
+	return
+}
+
 type LabelListener struct {
 	log *slog.Logger
 
 	db        *database.Service
 	serverUrl *url.URL
-	labels    map[string]int
+	labels    map[string]LabelKind
 
 	cursor  atomic.Int64
 	counter atomic.Int64
@@ -175,7 +195,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 			continue
 		}
 
-		did, err := uriToDid(label.Uri)
+		did, rkey, err := uriToDid(label.Uri)
 		if err != nil {
 			l.log.Warn("failed to parse label did", "uri", label.Uri, "err", err)
 			continue
@@ -193,7 +213,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 		whenMillis := when.UnixMilli()
 
-		info, err := l.db.IncrementCounter(uid, kind, whenMillis)
+		info, err := l.db.IncrementCounter(uid, int(kind), rkey, whenMillis)
 		if err != nil {
 			l.log.Warn("failed to increment counter", "kind", kind, "did", did, "err", err)
 			continue
@@ -203,7 +223,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		if info.Count == 1 {
 			notify = true
 		} else if info.Count == l.offenderThreshold {
-			info, err = l.db.IncrementCounter(uid, LabelOffender, whenMillis)
+			info, err = l.db.IncrementCounter(uid, int(LabelOffender), kind.String(), whenMillis)
 			if err != nil {
 				l.log.Warn("failed to increment offender counter", "did", did, "err", err)
 			}
@@ -217,7 +237,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 			l.notifier.Notify(&database.Label{
 				Id:   info.Id,
 				Did:  strings.TrimPrefix(did, "did:"),
-				Kind: kind,
+				Kind: int(kind),
 				Cts:  whenMillis,
 			})
 		}
@@ -254,8 +274,8 @@ func (l *LabelListener) persistSeq() error {
 	return nil
 }
 
-func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]int {
-	m := make(map[string]int)
+func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]LabelKind {
+	m := make(map[string]LabelKind)
 	m[at_utils.LabelPornString] = LabelPorn
 	m[at_utils.LabelSexualString] = LabelSexual
 	m[at_utils.LabelNudityString] = LabelNudity
@@ -272,19 +292,19 @@ func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]in
 	return m
 }
 
-func uriToDid(uri string) (string, error) {
+func uriToDid(uri string) (string, string, error) {
 	u, err := syntax.ParseATURI(uri)
 	if err == nil {
-		return u.Authority().String(), nil
+		return u.Authority().String(), u.RecordKey().String(), nil
 	}
 
 	if strings.HasPrefix(uri, "did:") {
 		did, err := syntax.ParseDID(uri)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return did.String(), nil
+		return did.String(), "actor", nil
 	}
 
-	return "", err
+	return "", "", err
 }
