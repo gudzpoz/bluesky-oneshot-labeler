@@ -1,11 +1,11 @@
 [project]
-name = "bluesky-list-cluster"
+name = "clusterer"
 version = "0.1.0"
 description = "Find accounts similar to those in a Bluesky list."
 authors = [
     {name = "gudzpoz", email = "gudzpoz@live.com"},
 ]
-dependencies = ["atproto>=0.0.58", "scikit-network>=0.33.1", "pandas>=2.2.3"]
+dependencies = ["atproto>=0.0.58", "scikit-network>=0.33.1", "pandas>=2.2.3", "aiosqlite>=0.21.0", "aiolimiter>=1.2.1", "tqdm>=4.67.1"]
 requires-python = ">=3.10,<3.13"
 readme = "README.md"
 license = {text = "MIT"}
