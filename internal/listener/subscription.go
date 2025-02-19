@@ -202,6 +202,12 @@ func (ln *LabelNotifier) Close() {
 	ln.last.Store(-1)
 }
 
+var neg *bool
+
+func SetNegation(negation *bool) {
+	neg = negation
+}
+
 func SignRawLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, error) {
 	unsigned := labels.UnsignedLabel{
 		Cts: time.UnixMilli(cts).UTC().Format(time.RFC3339),
@@ -211,6 +217,7 @@ func SignRawLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, er
 		Uri: "did:" + did,
 		Val: LabelKind(kind).String(),
 		Ver: &at_utils.AtProtoVersion,
+		Neg: neg,
 	}
 	return at_utils.SignLabel(&unsigned)
 }

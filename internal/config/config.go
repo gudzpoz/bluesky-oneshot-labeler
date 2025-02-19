@@ -56,4 +56,6 @@ var (
 	ExternalBlockList = os.Getenv("EXTERNAL_BLOCK_LIST")
 
 	ModeratorHandles = getEnvList("MODERATOR_HANDLES")
+
+	NegationStart = os.Getenv("NEGATION_START")
 )

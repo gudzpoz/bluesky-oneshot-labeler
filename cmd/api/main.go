@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ func main() {
 
 func mainInner() int {
 	debug := flag.Bool("debug", false, "enable debug logging")
+	neg := flag.Bool("neg", false, "negate the labeler")
 	publish := flag.Bool("publish", false, "publish labeler to user profile")
 	rebuild := flag.Bool("rebuild", false, "rebuild label metadata")
 	flag.Parse()
@@ -46,7 +48,7 @@ func mainInner() int {
 	} else if *rebuild {
 		err = rebuildLabels()
 	} else {
-		err = runServer()
+		err = runServer(*neg)
 	}
 	if err != nil {
 		return 1
@@ -132,7 +134,7 @@ type Runnable interface {
 	Run(ctx context.Context) chan bool
 }
 
-func runServer() error {
+func runServer(neg bool) error {
 	subscription, err := listener.NewLabelListener(startupCtx, logger)
 	if err != nil {
 		logger.Error("failed to create listener", "err", err)
@@ -151,9 +153,23 @@ func runServer() error {
 		return err
 	}
 
-	server := server.New(subscription, jetstream, logger)
+	var negStart int64
+	if neg {
+		negStart, err = strconv.ParseInt(config.NegationStart, 10, 64)
+		if err != nil {
+			logger.Error("failed to parse negation start", "err", err)
+			return err
+		}
+	}
+	server := server.New(subscription, negStart, jetstream, logger)
 
-	done := start(background, subscription, blockList, jetstream, server)
+	var done chan bool
+	if neg {
+		listener.SetNegation(&neg)
+		done = start(background, blockList, jetstream, server)
+	} else {
+		done = start(background, subscription, blockList, jetstream, server)
+	}
 	<-done
 
 	return nil

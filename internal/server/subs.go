@@ -23,6 +23,7 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 		s.closeWithError(c, "InternalError", err.Error())
 		return
 	}
+	latest += s.labelNegStart
 	if latest < cursor {
 		s.closeWithError(c, "FutureCursor", "Cursor is in the future")
 		return
@@ -30,7 +31,7 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.SetCloseHandler(func(code int, text string) error { cancel(); return nil })
-	err = s.notifier.ForAllLabelsSince(ctx, cursor, func(l *database.Label, xe *events.XRPCStreamEvent) error {
+	err = s.notifier.ForAllLabelsSince(ctx, cursor-s.labelNegStart, func(l *database.Label, xe *events.XRPCStreamEvent) error {
 		if xe == nil {
 			signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
 			if err != nil {
@@ -39,7 +40,7 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 			xe = &events.XRPCStreamEvent{
 				LabelLabels: &atproto.LabelSubscribeLabels_Labels{
 					Labels: []*atproto.LabelDefs_Label{signed},
-					Seq:    l.Id,
+					Seq:    l.Id + s.labelNegStart,
 				},
 			}
 		}

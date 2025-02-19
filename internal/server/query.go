@@ -61,6 +61,8 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 		}
 	}
 
+	input.Cursor -= s.labelNegStart
+
 	queried, err := s.db.QueryLabels(&input)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(xrpc.XRPCError{
@@ -71,7 +73,7 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 
 	var cursor *string
 	if len(queried) > 0 {
-		cursorStr := strconv.FormatInt(queried[len(queried)-1].Id, 10)
+		cursorStr := strconv.FormatInt(queried[len(queried)-1].Id+s.labelNegStart, 10)
 		cursor = &cursorStr
 	} else {
 		cursor = nil
