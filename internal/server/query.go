@@ -61,7 +61,8 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 		}
 	}
 
-	input.Cursor -= s.labelNegStart
+	var diff int64
+	input.Cursor, diff = s.convertCursor(input.Cursor)
 
 	queried, err := s.db.QueryLabels(&input)
 	if err != nil {
@@ -73,7 +74,7 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 
 	var cursor *string
 	if len(queried) > 0 {
-		cursorStr := strconv.FormatInt(queried[len(queried)-1].Id+s.labelNegStart, 10)
+		cursorStr := strconv.FormatInt(queried[len(queried)-1].Id+diff, 10)
 		cursor = &cursorStr
 	} else {
 		cursor = nil
@@ -84,8 +85,9 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 		Labels: make([]*atproto.LabelDefs_Label, len(queried)),
 	}
 
+	profile := diff > s.labelNegStart
 	for i, l := range queried {
-		signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
+		signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts, profile)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(xrpc.XRPCError{
 				ErrStr:  "InternalError",
@@ -96,4 +98,17 @@ func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(output)
+}
+
+func (s *FiberServer) convertCursor(cursor int64) (int64, int64) {
+	if s.labelNegStart == 0 {
+		return cursor, 0
+	}
+	if cursor < s.labelNegStart-1 {
+		return cursor, 0
+	}
+	if cursor < s.labelNegStart*2-1 {
+		return cursor - s.labelNegStart, s.labelNegStart
+	}
+	return cursor - s.labelNegStart*2, s.labelNegStart * 2
 }

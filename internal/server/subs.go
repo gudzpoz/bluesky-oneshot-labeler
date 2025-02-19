@@ -23,7 +23,9 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 		s.closeWithError(c, "InternalError", err.Error())
 		return
 	}
-	latest += s.labelNegStart
+
+	var diff int64
+	cursor, diff = s.convertCursor(cursor)
 	if latest < cursor {
 		s.closeWithError(c, "FutureCursor", "Cursor is in the future")
 		return
@@ -31,21 +33,18 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.SetCloseHandler(func(code int, text string) error { cancel(); return nil })
-	err = s.notifier.ForAllLabelsSince(ctx, cursor-s.labelNegStart, func(l *database.Label, xe *events.XRPCStreamEvent) error {
-		if xe == nil {
-			signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts)
-			if err != nil {
-				return err
-			}
-			xe = &events.XRPCStreamEvent{
-				LabelLabels: &atproto.LabelSubscribeLabels_Labels{
-					Labels: []*atproto.LabelDefs_Label{signed},
-					Seq:    l.Id + s.labelNegStart,
-				},
-			}
+	if s.labelNegStart != 0 {
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		if diff < 2*s.labelNegStart {
+			err = s.notifier.ForAllLabelsSince(canceled, cursor, s.writeLabelAsEventFunc(c, false, s.labelNegStart))
 		}
-		return s.writeEvent(c, xe)
-	})
+		if err == nil {
+			err = s.notifier.ForAllLabelsSince(ctx, cursor, s.writeLabelAsEventFunc(c, true, 2*s.labelNegStart))
+		}
+	} else {
+		err = s.notifier.ForAllLabelsSince(ctx, cursor, s.writeLabelAsEventFunc(c, false, diff))
+	}
 	if err != nil {
 		s.closeWithError(c, "InternalError", err.Error())
 		return
@@ -54,6 +53,24 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 	err = c.Close()
 	if err != nil {
 		s.log.Error("failed to close websocket", "error", err)
+	}
+}
+
+func (s *FiberServer) writeLabelAsEventFunc(c *websocket.Conn, profile bool, diff int64) func(l *database.Label, xe *events.XRPCStreamEvent) error {
+	return func(l *database.Label, xe *events.XRPCStreamEvent) error {
+		if xe == nil {
+			signed, err := listener.SignRawLabel(l.Kind, l.Did, l.Cts, profile)
+			if err != nil {
+				return err
+			}
+			xe = &events.XRPCStreamEvent{
+				LabelLabels: &atproto.LabelSubscribeLabels_Labels{
+					Labels: []*atproto.LabelDefs_Label{signed},
+					Seq:    l.Id + diff,
+				},
+			}
+		}
+		return s.writeEvent(c, xe)
 	}
 }
 

@@ -53,7 +53,7 @@ func (ln *LabelNotifier) Notify(label *database.Label) {
 		return
 	}
 
-	signed, err := SignRawLabel(label.Kind, label.Did, label.Cts)
+	signed, err := SignRawLabel(label.Kind, label.Did, label.Cts, false)
 	if err != nil {
 		ln.log.Error("Failed to sign label", "error", err)
 		return
@@ -208,13 +208,19 @@ func SetNegation(negation *bool) {
 	neg = negation
 }
 
-func SignRawLabel(kind int, did string, cts int64) (*atproto.LabelDefs_Label, error) {
+func SignRawLabel(kind int, did string, cts int64, profile bool) (*atproto.LabelDefs_Label, error) {
+	var uri string
+	if profile {
+		uri = "at://did:" + did
+	} else {
+		uri = "did:" + did
+	}
 	unsigned := labels.UnsignedLabel{
 		Cts: time.UnixMilli(cts).UTC().Format(time.RFC3339),
 		Src: at_utils.UserDid.String(),
 		// TODO: What on earth? `did:` is not a valid URI and the spec requires one,
 		//   and yet Bluesky AppView expects it to be there?
-		Uri: "did:" + did,
+		Uri: uri,
 		Val: LabelKind(kind).String(),
 		Ver: &at_utils.AtProtoVersion,
 		Neg: neg,
