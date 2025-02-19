@@ -12,6 +12,7 @@ class Config:
     session_file: str
     cache_db: str
 
+    blocked_csv: str
     output_csv: str
     page_rank_damping: float
     rank_threshold: float

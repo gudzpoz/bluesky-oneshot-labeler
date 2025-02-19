@@ -76,7 +76,10 @@ class BlockList(dict[str, BlockListItem]):
         with open(self.path, 'w', newline='') as f:
             writer = csv.writer(f)
             for item in sorted(self.values(), key=lambda x: x.index):
-                writer.writerow([item.did, item.reason_type, item.reason])
+                if item.reason == '' and item.reason_type == '':
+                    writer.writerow([item.did])
+                else:
+                    writer.writerow([item.did, item.reason_type, item.reason])
 
     def add(self, did: str, reason_type: str, reason: str):
         if did in self:

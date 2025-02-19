@@ -2,11 +2,12 @@
   "user": "bsky.app <your user handle here>",
   "password": "<create an app password and put it here>",
   "session_file": "bsky_cluster.session",
+  "blocked_csv": "blocklist.csv",
   "output_csv": "bsky_cluster.csv",
   "page_rank_damping": 0.7,
   "rank_threshold": 1e-5,
   "cache_db": "bsky_cluster.db",
-  "rate_limit": 500,
+  "rate_limit": 10,
   "max_followers": 5000,
   "depth": 1
 }

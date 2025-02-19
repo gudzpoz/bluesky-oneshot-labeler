@@ -1,11 +1,12 @@
 import asyncio
+import dataclasses
 import logging
 import typing
 
 import aiolimiter
 import aiosqlite
 from atproto import AsyncClient, exceptions
-from atproto_client.models import AppBskyActorDefs
+from atproto_client.models.common import XrpcError
 from tqdm.asyncio import tqdm_asyncio
 
 from .config import Config
@@ -20,7 +21,10 @@ _warn = _logger.warning
 async def init_db(config: Config) -> 'RelDatabase':
     db = await aiosqlite.connect(config.cache_db_path)
     client = RelDatabase(db, config)
-    await client._init()
+    refreshed = await client._init()
+    if not refreshed:
+        client = RelDatabase(db, config)
+        await client._init(refresh=True)
     return client
 
 
@@ -28,6 +32,14 @@ T = typing.TypeVar('T')
 def _batch(iterable: list[T], batch_size: int):
     for i in range(0, len(iterable), batch_size):
         yield iterable[i:i + batch_size]
+
+
+@dataclasses.dataclass
+class User:
+    did: str
+    handle: str
+    nick: str
+    desc: str
 
 
 class RelDatabase(AsyncClient):
@@ -43,7 +55,7 @@ class RelDatabase(AsyncClient):
         super().__init__()
         self.config = config
         self.cache_db = db
-        self.rate_limit = aiolimiter.AsyncLimiter(10, 1)
+        self.rate_limit = aiolimiter.AsyncLimiter(config.rate_limit, 1)
 
     async def _init_cache_db(self):
         statements = [
@@ -76,22 +88,23 @@ class RelDatabase(AsyncClient):
     async def close(self):
         await self.cache_db.close()
 
-    async def _init(self):
-        await self._init_cache_db()
+    async def _init(self, refresh=False):
         session_file = self.config.session_file_path
         user = None
-        if session_file.exists():
+        if not refresh and session_file.exists():
             with open(session_file, 'r') as f:
                 session_string = f.read()
             try:
                 user = await self.login(session_string=session_string)
             except exceptions.BadRequestError:
-                pass
+                return False
         if user is None:
             user = await self.login(self.config.user, self.config.password)
-            with open(session_file, 'w') as f:
-                f.write(self.export_session_string())
+        with open(session_file, 'w') as f:
+            f.write(self.export_session_string())
+        await self._init_cache_db()
         _info('Logged in as %s', user.handle)
+        return True
 
     async def _get_existent_dids(self, dids: list[str]) -> list[tuple[str, int]]:
         '''Get the dids that already exist in the database.
@@ -158,7 +171,6 @@ class RelDatabase(AsyncClient):
                 self._fetch_users(batch_dids)
                 for batch_dids in _batch(missing_dids, 25)
             ], return_exceptions=True)
-        uids = []
         for uid_list_batch in uid_list:
             if isinstance(uid_list_batch, BaseException):
                 _warn('Failed to fetch users: %s', uid_list_batch)
@@ -184,7 +196,16 @@ class RelDatabase(AsyncClient):
                             res = await self.get_follows(did, cursor, limit=100)
                             next_users = res.follows
                     break
-                except Exception as e:
+                except exceptions.AtProtocolError as e:
+                    if isinstance(e, exceptions.BadRequestError):
+                        err = e.response and e.response.content
+                        if (
+                            isinstance(err, XrpcError)
+                            and err.message
+                            and 'Actor not found' in err.message
+                        ):
+                            _warn('Actor not found: %s', did)
+                            return users
                     _warn('Retrying (%d/3) due to %s', i + 1, e)
             else:
                 raise Exception('Failed to get %s of %s', method, did)
@@ -194,6 +215,17 @@ class RelDatabase(AsyncClient):
             users.extend(await self.ensure_users([u.did for u in next_users], tqdm=False))
         _debug('Followship (%s) for %s: %d users', method, did, len(users))
         return users
+
+    async def _mark_fetched(self, did: str, followers: int, following: int):
+        _debug(
+            'Updating user info for %s (%d, %d)',
+            did, followers, following,
+        )
+        await self.cache_db.execute(
+            'UPDATE user SET fetched = 1 WHERE did = ?',
+            (did,),
+        )
+        await self.cache_db.commit()
 
     async def _fetch_user_graph(
             self,
@@ -206,45 +238,63 @@ class RelDatabase(AsyncClient):
         ) as c:
             record = await c.fetchone()
         if record is None:
-            _warn('No user record for %s', did)
-            return
+            return False
         uid, followers, following, fetched = record
         if fetched and not force:
-            return
+            return True
 
         if followers > 0 and followers < self.config.max_followers:
-            followers = await self._get_followship('followers', did)
+            uids = await self._get_followship('followers', did)
             await self.cache_db.executemany(
                 'INSERT OR IGNORE INTO follow_graph (from_uid, to_uid) VALUES (?, ?)',
                 [
                     (f, uid)
-                    for f in followers
+                    for f in uids
                 ],
             )
             await self.cache_db.commit()
 
         if following > 0 and following < self.config.max_followers:
-            following = await self._get_followship('following', did)
+            uids = await self._get_followship('following', did)
             await self.cache_db.executemany(
                 'INSERT OR IGNORE INTO follow_graph (from_uid, to_uid) VALUES (?, ?)',
                 [
                     (uid, f)
-                    for f in following
+                    for f in uids
                 ],
             )
             await self.cache_db.commit()
-        _debug(
-            'Updating user info for %s (%d, %d)',
-            did, followers, following,
-        )
-        await self.cache_db.execute(
-            'UPDATE user SET fetched = 1 WHERE did = ?',
-            (did, ),
-        )
-        await self.cache_db.commit()
+        await self._mark_fetched(did, followers, following)
+        return True
 
     async def ensure_graph(self, dids: list[str]):
-        await tqdm_asyncio.gather(*[
+        fetched: list[bool] = await tqdm_asyncio.gather(*[
             self._fetch_user_graph(did)
             for did in dids
         ])
+        return [did for i, did in enumerate(dids) if not fetched[i]]
+
+    async def all_edges(self) -> list[tuple[int, int]]:
+        edges: list[tuple[int, int]] = []
+        async with self.cache_db.execute(
+            'SELECT from_uid, to_uid FROM follow_graph',
+        ) as c:
+            async for record in c:
+                edges.append((record[0], record[1]))
+        return edges
+
+    async def all_users(self) -> dict[int, User]:
+        users: dict[int, User] = {}
+        async with self.cache_db.execute(
+            'SELECT uid, did, handle, nick, desc FROM user',
+        ) as c:
+            async for record in c:
+                uid, did, handle, nick, desc = record
+                users[uid] = User(
+                    did=did,
+                    handle=handle,
+                    nick=nick,
+                    desc=desc,
+                )
+        return users
+
