@@ -4,7 +4,9 @@ import (
 	"bluesky-oneshot-labeler/internal/database"
 	"bluesky-oneshot-labeler/internal/listener"
 	"context"
+	"net"
 	"strconv"
+	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/events"
@@ -30,6 +32,19 @@ func (s *FiberServer) SubscribeLabelsHandler(c *websocket.Conn) {
 		s.closeWithError(c, "FutureCursor", "Cursor is in the future")
 		return
 	}
+
+	c.SetPingHandler(func(message string) error {
+		err := c.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second*60))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if e, ok := err.(net.Error); ok && e.Timeout() {
+			return nil
+		}
+		return err
+	})
+	c.SetPongHandler(func(_ string) error {
+		return nil
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.SetCloseHandler(func(code int, text string) error { cancel(); return nil })
