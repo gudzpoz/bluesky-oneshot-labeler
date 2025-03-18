@@ -80,8 +80,8 @@ func (s *FiberServer) CreateReportHandler(c *fiber.Ctx) error {
 	return c.JSON(&atproto.ModerationCreateReport_Output{
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 		Id:         0,
-		Reason:     input.ReasonType,
-		ReasonType: input.Reason,
+		Reason:     input.Reason,
+		ReasonType: input.ReasonType,
 		ReportedBy: ident.DID.String(),
 		Subject: &atproto.ModerationCreateReport_Output_Subject{
 			RepoStrongRef: input.Subject.RepoStrongRef,
