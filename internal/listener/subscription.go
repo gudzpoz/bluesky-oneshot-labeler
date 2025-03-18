@@ -133,7 +133,7 @@ func (ln *LabelNotifier) ForAllLabelsSince(
 	latest := sub.since
 	for latest > since {
 		ln.Unsubscribe(sub)
-		err := ln.forAllCatchUp(since, latest, fn)
+		err := ln.forAllCatchUp(ctx, since, latest, fn)
 		if err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (ln *LabelNotifier) ForAllLabelsSince(
 	}
 }
 
-func (ln *LabelNotifier) forAllCatchUp(from, to int64, fn ForAllCallback) error {
+func (ln *LabelNotifier) forAllCatchUp(ctx context.Context, from, to int64, fn ForAllCallback) error {
 	ln.log.Debug("catching up subscription", "from", from, "to", to)
 
 	rows, err := ln.db.QueryLabelsSince(from, to)
@@ -186,6 +186,9 @@ func (ln *LabelNotifier) forAllCatchUp(from, to int64, fn ForAllCallback) error 
 			Kind: kind,
 			Cts:  cts,
 		}, nil); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
