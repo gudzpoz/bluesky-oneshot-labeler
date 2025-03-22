@@ -15,7 +15,7 @@ import (
 )
 
 type upstreamLabel struct {
-	Id    int64
+	Uid   int64
 	Did   string
 	Count int64
 }
@@ -141,7 +141,7 @@ func (w *AccountWatcher) checkBatchWorker(ctx context.Context, labels map[string
 			candidates = append(candidates, label)
 			continue
 		}
-		count, err := w.db.TotalCounts(label.Id)
+		count, err := w.db.TotalCounts(label.Uid)
 		if err != nil {
 			w.log.Error("failed to get total counts", "err", err)
 			continue
@@ -152,17 +152,21 @@ func (w *AccountWatcher) checkBatchWorker(ctx context.Context, labels map[string
 	}
 
 	for _, label := range candidates {
-		w.db.InsertBlock(label.Id)
+		blockId, err := w.db.InsertBlock(label.Uid)
+		if err != nil {
+			w.log.Error("failed to insert block", "err", err)
+			continue
+		}
 		w.notifier.Notify(&Block{
-			Id:         label.Id,
+			Id:         blockId,
 			CompactDid: strings.TrimPrefix(label.Did, "did:"),
 		})
 	}
 }
 
-func (w *AccountWatcher) CheckAccount(id int64, did string, count int64) {
+func (w *AccountWatcher) CheckAccount(uid int64, did string, count int64) {
 	w.queue <- &upstreamLabel{
-		Id:    id,
+		Uid:   uid,
 		Did:   did,
 		Count: count,
 	}

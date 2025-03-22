@@ -198,13 +198,13 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 			continue
 		}
 
-		id, count, err := l.db.IncrementCounter(uid, int(kind))
+		count, err := l.db.IncrementCounter(uid, int(kind))
 		if err != nil {
 			l.log.Warn("failed to increment counter", "kind", kind, "did", info.Did, "err", err)
 			continue
 		}
 
-		l.watcher.CheckAccount(id, info.Did, count)
+		l.watcher.CheckAccount(uid, info.Did, count)
 	}
 	at_utils.StoreLarger(&l.cursor, labels.Seq)
 	l.counter.Add(1)

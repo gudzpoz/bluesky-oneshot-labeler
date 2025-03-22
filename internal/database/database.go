@@ -197,6 +197,7 @@ func (s *Service) upgrade() error {
 			`ALTER TABLE upstream_stats DROP COLUMN posts`,
 			`DELETE FROM upstream_stats WHERE kind = 5`, // "offender" category
 			`CREATE TABLE blocked_user (id integer PRIMARY KEY, uid integer not null)`,
+			`CREATE UNIQUE INDEX blocked_user_uid_id ON blocked_user (uid)`,
 		); err != nil {
 			return err
 		}

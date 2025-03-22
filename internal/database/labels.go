@@ -21,7 +21,7 @@ func (s *Service) prepareLabelStatements() error {
 			VALUES (?, ?, 1)
 		ON CONFLICT (uid, kind) DO UPDATE
 			SET count = count + 1
-		RETURNING id, count
+		RETURNING count
 		`,
 	)
 	if err != nil {
@@ -30,7 +30,7 @@ func (s *Service) prepareLabelStatements() error {
 	s.incrementCounterStmt = stmt
 
 	stmt, err = s.rdb.Prepare(
-		"SELECT sum(count) FROM upstream_stats WHERE uid = ?",
+		"SELECT sum(count) FROM upstream_stats WHERE uid = ? GROUP BY uid",
 	)
 	if err != nil {
 		return err
@@ -61,8 +61,8 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.getBlockSinceStmt = stmt
 
-	stmt, err = s.rdb.Prepare(
-		"INSERT INTO blocked_user (uid) VALUES (?) ON CONFLICT DO NOTHING",
+	stmt, err = s.wdb.Prepare(
+		"INSERT INTO blocked_user (uid) VALUES (?) ON CONFLICT (uid) DO UPDATE SET uid = uid RETURNING id",
 	)
 	if err != nil {
 		return err
@@ -82,15 +82,18 @@ func (s *Service) GetUserId(did string) (int64, error) {
 	return id, err
 }
 
-func (s *Service) IncrementCounter(uid int64, kind int) (int64, int64, error) {
-	var id, count int64
-	err := s.incrementCounterStmt.QueryRow(uid, kind).Scan(&id, &count)
-	return id, count, err
+func (s *Service) IncrementCounter(uid int64, kind int) (int64, error) {
+	var count int64
+	err := s.incrementCounterStmt.QueryRow(uid, kind).Scan(&count)
+	return count, err
 }
 
 func (s *Service) TotalCounts(uid int64) (int64, error) {
 	var count int64
 	err := s.labeledCountSumStmt.QueryRow(uid).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return count, err
 }
 
@@ -129,7 +132,8 @@ func (s *Service) GetBlocksSince(from, to int64) ([]string, int64, error) {
 	return dids, id, rows.Err()
 }
 
-func (s *Service) InsertBlock(uid int64) error {
-	_, err := s.insertBlockStmt.Exec(uid)
-	return err
+func (s *Service) InsertBlock(uid int64) (int64, error) {
+	var blockId int64
+	err := s.insertBlockStmt.QueryRow(uid).Scan(&blockId)
+	return blockId, err
 }
