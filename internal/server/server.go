@@ -23,14 +23,12 @@ type FiberServer struct {
 
 	blocker  *listener.JetstreamListener
 	notifier *listener.LabelNotifier
-
-	labelNegStart int64
 }
 
 //go:embed views/*
 var viewsFs embed.FS
 
-func New(upstream *listener.LabelListener, negStart int64, source *listener.JetstreamListener, logger *slog.Logger) *FiberServer {
+func New(upstream *listener.LabelListener, source *listener.JetstreamListener, logger *slog.Logger) *FiberServer {
 	engine := html.NewFileSystem(http.FS(viewsFs), ".html")
 
 	server := &FiberServer{
@@ -44,8 +42,6 @@ func New(upstream *listener.LabelListener, negStart int64, source *listener.Jets
 
 		blocker:  source,
 		notifier: upstream.Notifier(),
-
-		labelNegStart: negStart,
 	}
 
 	return server
