@@ -7,16 +7,21 @@ CREATE TABLE user (
 
 CREATE UNIQUE INDEX user_did ON user (did);
 
-CREATE TABLE block_list (
+CREATE TABLE upstream_stats (
   id integer PRIMARY KEY AUTOINCREMENT,
   uid integer not null,
   kind integer not null,
-  cts integer not null,
-  count integer not null,
-  posts blob not null
+  count integer not null
 );
 
-CREATE UNIQUE INDEX block_list_uid_kind ON block_list (uid, kind);
+CREATE UNIQUE INDEX block_list_uid_kind ON upstream_stats (uid, kind);
+
+CREATE TABLE blocked_user (
+  id integer PRIMARY KEY,
+  uid integer not null
+);
+
+CREATE UNIQUE INDEX blocked_user_uid_id ON blocked_user (uid);
 
 CREATE TABLE feed_list (
   id integer PRIMARY KEY AUTOINCREMENT,

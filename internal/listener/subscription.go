@@ -3,7 +3,6 @@ package listener
 import (
 	"bluesky-oneshot-labeler/internal/at_utils"
 	"bluesky-oneshot-labeler/internal/database"
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -17,13 +16,18 @@ import (
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
+type Block struct {
+	Id         int64
+	CompactDid string
+}
+
 type Subscriber struct {
-	out   chan *events.XRPCStreamEvent
+	out   chan *Block
 	done  chan bool
 	since int64
 }
 
-type LabelNotifier struct {
+type BlockNotifier struct {
 	db   *database.Service
 	subs []*Subscriber
 	lock sync.RWMutex
@@ -31,13 +35,13 @@ type LabelNotifier struct {
 	log  *slog.Logger
 }
 
-func NewLabelNotifier(logger *slog.Logger) (*LabelNotifier, error) {
+func NewBlockNotifier(logger *slog.Logger) (*BlockNotifier, error) {
 	db := database.Instance()
-	latest, err := db.LatestLabelId()
+	latest, err := db.LastBlockId()
 	if err != nil {
 		return nil, err
 	}
-	notifier := &LabelNotifier{
+	notifier := &BlockNotifier{
 		subs: make([]*Subscriber, 0),
 		log:  logger,
 		db:   db,
@@ -46,36 +50,17 @@ func NewLabelNotifier(logger *slog.Logger) (*LabelNotifier, error) {
 	return notifier, nil
 }
 
-func (ln *LabelNotifier) Notify(label *database.Label) {
+func (ln *BlockNotifier) Notify(block *Block) {
 	ln.lock.RLock()
 	defer ln.lock.RUnlock()
 	if len(ln.subs) == 0 {
 		return
 	}
 
-	signed, err := SignRawLabel(label.Kind, label.Did, label.Cts, false)
-	if err != nil {
-		ln.log.Error("Failed to sign label", "error", err)
-		return
-	}
-	event := &events.XRPCStreamEvent{
-		LabelLabels: &atproto.LabelSubscribeLabels_Labels{
-			Labels: []*atproto.LabelDefs_Label{signed},
-			Seq:    label.Id,
-		},
-	}
-
-	// event.Preserialize() does not support LabelLabels yet
-	var buf bytes.Buffer
-	if err := SerializeEvent(event, &buf); err != nil {
-		ln.log.Error("Failed to preserialize label", "error", err)
-		return
-	}
-	event.Preserialized = buf.Bytes()
-	ln.last.Store(label.Id)
+	ln.last.Store(block.Id)
 
 	for _, sub := range ln.subs {
-		sub.out <- event
+		sub.out <- block
 	}
 }
 
@@ -94,9 +79,9 @@ func SerializeEvent(event *events.XRPCStreamEvent, writer io.Writer) error {
 	return nil
 }
 
-func (ln *LabelNotifier) Subscribe() *Subscriber {
+func (ln *BlockNotifier) Subscribe() *Subscriber {
 	sub := &Subscriber{
-		out:  make(chan *events.XRPCStreamEvent, 10),
+		out:  make(chan *Block, 10),
 		done: make(chan bool),
 	}
 	ln.lock.Lock()
@@ -110,7 +95,7 @@ func (ln *LabelNotifier) Subscribe() *Subscriber {
 	return sub
 }
 
-func (ln *LabelNotifier) Unsubscribe(sub *Subscriber) {
+func (ln *BlockNotifier) Unsubscribe(sub *Subscriber) {
 	ln.lock.Lock()
 	defer ln.lock.Unlock()
 	for i, s := range ln.subs {
@@ -122,9 +107,9 @@ func (ln *LabelNotifier) Unsubscribe(sub *Subscriber) {
 	}
 }
 
-type ForAllCallback func(*database.Label, *events.XRPCStreamEvent) error
+type ForAllCallback func(block *Block, new bool) error
 
-func (ln *LabelNotifier) ForAllLabelsSince(
+func (ln *BlockNotifier) ForAllLabelsSince(
 	ctx context.Context,
 	since int64,
 	fn ForAllCallback,
@@ -156,36 +141,25 @@ func (ln *LabelNotifier) ForAllLabelsSince(
 		case <-sub.done:
 			return nil
 		case event := <-sub.out:
-			if err := fn(nil, event); err != nil {
+			if err := fn(event, true); err != nil {
 				return nil
 			}
 		}
 	}
 }
 
-func (ln *LabelNotifier) forAllCatchUp(ctx context.Context, from, to int64, fn ForAllCallback) error {
+func (ln *BlockNotifier) forAllCatchUp(ctx context.Context, from, to int64, fn ForAllCallback) error {
 	ln.log.Debug("catching up subscription", "from", from, "to", to)
 
-	rows, err := ln.db.QueryLabelsSince(from, to)
+	dids, lastId, err := ln.db.GetBlocksSince(from, to)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var did string
-		var kind int
-		var cts int64
-		err := rows.Scan(&id, &did, &kind, &cts)
-		if err != nil {
-			return err
-		}
-		if err := fn(&database.Label{
-			Id:   id,
-			Did:  did,
-			Kind: kind,
-			Cts:  cts,
-		}, nil); err != nil {
+	for _, did := range dids {
+		if err := fn(&Block{
+			Id:         lastId,
+			CompactDid: did,
+		}, false); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -195,7 +169,7 @@ func (ln *LabelNotifier) forAllCatchUp(ctx context.Context, from, to int64, fn F
 	return nil
 }
 
-func (ln *LabelNotifier) Close() {
+func (ln *BlockNotifier) Close() {
 	ln.lock.Lock()
 	defer ln.lock.Unlock()
 	for _, sub := range ln.subs {
@@ -203,12 +177,6 @@ func (ln *LabelNotifier) Close() {
 	}
 	ln.subs = nil
 	ln.last.Store(-1)
-}
-
-var neg *bool
-
-func SetNegation(negation *bool) {
-	neg = negation
 }
 
 func SignRawLabel(kind int, did string, cts int64, profile bool) (*atproto.LabelDefs_Label, error) {
@@ -226,7 +194,7 @@ func SignRawLabel(kind int, did string, cts int64, profile bool) (*atproto.Label
 		Uri: uri,
 		Val: LabelKind(kind).String(),
 		Ver: &at_utils.AtProtoVersion,
-		Neg: neg,
+		Neg: nil,
 	}
 	return at_utils.SignLabel(&unsigned)
 }

@@ -19,11 +19,12 @@ type Service struct {
 	log *slog.Logger
 
 	insertUserStmt       *sql.Stmt
-	updateCounterRecStmt *sql.Stmt
 	incrementCounterStmt *sql.Stmt
-	lastLabelIdStmt      *sql.Stmt
-	queryLabelsSinceStmt *sql.Stmt
-	userExistsStmt       *sql.Stmt
+
+	lastBlockIdStmt   *sql.Stmt
+	userBlockedStmt   *sql.Stmt
+	getBlockSinceStmt *sql.Stmt
+	insertBlockStmt   *sql.Stmt
 
 	insertFeedItemStmt    *sql.Stmt
 	getFeedItemsStmt      *sql.Stmt
@@ -122,7 +123,7 @@ func Instance() *Service {
 //go:embed schema.sql
 var schemaSql string
 
-const dbVersion = 2
+const dbVersion = 3
 
 func (s *Service) init() error {
 	for _, line := range strings.Split(schemaSql, ";") {
@@ -187,6 +188,18 @@ func (s *Service) upgrade() error {
 		); err != nil {
 			return err
 		}
+		fallthrough
+	case 2:
+		if err := try(3,
+			`ALTER TABLE block_list RENAME TO upstream_stats`,
+			`ALTER TABLE upstream_stats DROP COLUMN cts`,
+			`ALTER TABLE upstream_stats DROP COLUMN posts`,
+			`DELETE FROM upstream_stats WHERE kind = 5`, // "offender" category
+			`CREATE TABLE blocked_user (id integer PRIMARY KEY, uid integer not null)`,
+			`VACUUM`,
+		); err != nil {
+			return err
+		}
 		s.log.Info("Upgraded database to version", "version", dbVersion)
 		// no-fallthrough
 	case dbVersion:
@@ -230,4 +243,19 @@ func (s *Service) GetConfigInt(key string, defaultValue int64) (int64, error) {
 
 func (s *Service) SetConfigInt(key string, value int64) error {
 	return s.SetConfig(key, strconv.FormatInt(value, 10))
+}
+
+func (s *Service) GetConfigFloat(key string, defaultValue float64) (float64, error) {
+	valueStr, err := s.GetConfig(key, "")
+	if err != nil {
+		return 0, err
+	}
+	if valueStr == "" {
+		return defaultValue, nil
+	}
+	return strconv.ParseFloat(valueStr, 64)
+}
+
+func (s *Service) SetConfigFloat(key string, value float64) error {
+	return s.SetConfig(key, strconv.FormatFloat(value, 'f', -1, 64))
 }

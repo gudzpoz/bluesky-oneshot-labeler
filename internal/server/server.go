@@ -21,8 +21,7 @@ type FiberServer struct {
 	db  *database.Service
 	log *slog.Logger
 
-	blocker  *listener.JetstreamListener
-	notifier *listener.LabelNotifier
+	blocker *listener.JetstreamListener
 }
 
 //go:embed views/*
@@ -40,8 +39,7 @@ func New(upstream *listener.LabelListener, source *listener.JetstreamListener, l
 		db:  database.Instance(),
 		log: logger,
 
-		blocker:  source,
-		notifier: upstream.Notifier(),
+		blocker: source,
 	}
 
 	return server

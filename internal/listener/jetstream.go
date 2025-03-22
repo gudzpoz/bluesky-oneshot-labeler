@@ -14,7 +14,6 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/bluesky-social/indigo/api/bsky"
-	"github.com/bluesky-social/indigo/events"
 	"github.com/bluesky-social/jetstream/pkg/client"
 	"github.com/bluesky-social/jetstream/pkg/client/schedulers/parallel"
 	"github.com/bluesky-social/jetstream/pkg/models"
@@ -47,7 +46,7 @@ type JetstreamListener struct {
 
 	db       *database.Service
 	client   *client.Client
-	notifier *LabelNotifier
+	notifier *BlockNotifier
 
 	bloomApprox  int64
 	bloomFilter  *bloom.BloomFilter
@@ -64,7 +63,7 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 	config.WebsocketURL = "wss://jetstream2.us-west.bsky.network/subscribe"
 
 	db := database.Instance()
-	latest, err := db.LatestLabelId()
+	blockCount, err := db.LastBlockId()
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +72,8 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		log:         logger,
 		db:          db,
 		notifier:    upstream.Notifier(),
-		bloomApprox: latest,
-		bloomFilter: bloom.NewWithEstimates(uint(latest), 0.01),
+		bloomApprox: blockCount,
+		bloomFilter: bloom.NewWithEstimates(uint(blockCount), 0.01),
 		blockList:   blockList,
 		listUpdated: make(chan bool, 1),
 
@@ -274,21 +273,14 @@ func (l *JetstreamListener) KeepBloomFilterInSync(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			err := l.notifier.ForAllLabelsSince(ctx, 0, func(label *database.Label, xe *events.XRPCStreamEvent) error {
-				var id int64
-				var did string
-				if label != nil {
-					id = label.Id
-					did = label.Did
-				} else {
-					id = xe.LabelLabels.Seq
-					did = strings.TrimPrefix(xe.LabelLabels.Labels[0].Uri, "at://did:")
-				}
+			err := l.notifier.ForAllLabelsSince(ctx, 0, func(block *Block, new bool) error {
+				id := block.Id
+				did := block.CompactDid
 				if id > approx*2 {
 					return RebuildFilterError{NewSize: id}
 				}
 				filter.AddString(did)
-				if label == nil {
+				if new {
 					l.log.Debug("adding to db filter", "did", did)
 					l.notifyListUpdated()
 				}
@@ -323,7 +315,7 @@ func (l *JetstreamListener) InBlockList(did string) int {
 	if !l.bloomFilter.TestString(did) {
 		return OutOfBlockList
 	}
-	labeled, err := l.db.IsUserLabeled(did)
+	labeled, err := l.db.IsUserBlocked(did)
 	if err != nil {
 		l.log.Error("failed to check if user is labeled", "err", err)
 		return OutOfBlockList

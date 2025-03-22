@@ -44,7 +44,7 @@ func (s *FiberServer) WellKnownHandler(c *fiber.Ctx) error {
 
 func (s *FiberServer) HealthHandler(c *fiber.Ctx) error {
 	var id any
-	id, err := s.db.LatestLabelId()
+	id, err := s.db.LastBlockId()
 	if err != nil {
 		id = "unknown"
 	}

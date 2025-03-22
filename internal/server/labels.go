@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bluesky-oneshot-labeler/internal/database"
 	"context"
 	"net"
 	"strconv"
@@ -70,8 +69,13 @@ func (s *FiberServer) closeWithError(c *websocket.Conn, errStr string, message s
 	}
 }
 
+type QueryLabelsInput struct {
+	Cursor int64
+	Limit  int64
+}
+
 func (s *FiberServer) QueryLabelsHandler(c *fiber.Ctx) error {
-	input := database.QueryLabelsInput{
+	input := QueryLabelsInput{
 		Cursor: 0,
 		Limit:  10,
 	}

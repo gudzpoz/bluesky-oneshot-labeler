@@ -17,8 +17,6 @@ import (
 	"github.com/bluesky-social/indigo/events"
 	"github.com/bluesky-social/indigo/events/schedulers/sequential"
 	"github.com/gorilla/websocket"
-
-	_ "github.com/joho/godotenv/autoload"
 )
 
 type LabelKind int
@@ -29,7 +27,6 @@ const (
 	LabelNudity
 	LabelGraphicMedia
 	LabelOthers
-	LabelOffender
 )
 
 func (l LabelKind) String() (val string) {
@@ -42,8 +39,6 @@ func (l LabelKind) String() (val string) {
 		val = at_utils.LabelNudityString
 	case LabelGraphicMedia:
 		val = at_utils.LabelGraphicMediaString
-	case LabelOffender:
-		val = "offender"
 	default:
 		val = "others"
 	}
@@ -60,11 +55,7 @@ type LabelListener struct {
 	cursor  atomic.Int64
 	counter atomic.Int64
 
-	offenderThreshold int64
-
-	notifier *LabelNotifier
-
-	rebuildingBound int64
+	watcher *AccountWatcher
 }
 
 func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener, error) {
@@ -105,29 +96,17 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 				return nil, fmt.Errorf("labeler service view is not detailed")
 			}
 
-			offenderThreshold, err := db.GetConfigInt("offender-threshold", 0)
-			if err != nil {
-				return nil, err
-			}
-			if offenderThreshold == 0 {
-				offenderThreshold = int64(config.OffenderThreshold)
-				if err := db.SetConfigInt("offender-threshold", offenderThreshold); err != nil {
-					return nil, err
-				}
-			}
-
-			notifier, err := NewLabelNotifier(logger.WithGroup("notifier"))
+			watcher, err := NewAccountWatcher(logger)
 			if err != nil {
 				return nil, err
 			}
 
 			listener := &LabelListener{
-				log:               logger,
-				labels:            buildLabelMapping(details.Policies),
-				serverUrl:         u,
-				db:                db,
-				offenderThreshold: offenderThreshold,
-				notifier:          notifier,
+				log:       logger,
+				labels:    buildLabelMapping(details.Policies),
+				serverUrl: u,
+				db:        db,
+				watcher:   watcher,
 			}
 			listener.cursor.Store(cursor)
 			listener.counter.Store(counter)
@@ -138,6 +117,9 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 }
 
 func (l *LabelListener) Run(ctx context.Context) chan bool {
+	watcherCtx, stopWatcher := context.WithCancel(context.Background())
+	go l.watcher.Listen(watcherCtx)
+
 	done := make(chan bool)
 	go func() {
 		for {
@@ -146,6 +128,7 @@ func (l *LabelListener) Run(ctx context.Context) chan bool {
 			case <-ctx.Done():
 				l.log.Info("context done, label listening stopped")
 				done <- true
+				stopWatcher()
 				return
 			case <-time.After(1 * time.Second):
 				if err := l.listen(ctx); err != nil {
@@ -179,8 +162,8 @@ func (l *LabelListener) listen(ctx context.Context) error {
 	return err
 }
 
-func (l *LabelListener) Notifier() *LabelNotifier {
-	return l.notifier
+func (l *LabelListener) Notifier() *BlockNotifier {
+	return l.watcher.notifier
 }
 
 func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStreamEvent) error {
@@ -197,64 +180,32 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 			continue
 		}
 
-		did, rkey, err := uriToDid(label.Uri)
+		info := explainLabel(label.Uri)
+		switch info.Kind {
+		case LabelUnknown:
+			l.log.Warn("failed to parse label did", "info", info)
+			continue
+		case LabelOnProfile:
+			l.log.Warn("ignores label on profile", "user", info.Did)
+			continue
+		case LabelOnPost:
+		case LabelOnUser:
+
+		}
+
+		uid, err := l.db.GetUserId(info.Did)
 		if err != nil {
-			l.log.Warn("failed to parse label did", "uri", label.Uri, "err", err)
+			l.log.Warn("failed to get user id", "did", info.Did, "err", err)
 			continue
 		}
 
-		uid, err := l.db.GetUserId(did)
+		id, count, err := l.db.IncrementCounter(uid, int(kind))
 		if err != nil {
-			l.log.Warn("failed to get user id", "did", did, "err", err)
+			l.log.Warn("failed to increment counter", "kind", kind, "did", info.Did, "err", err)
 			continue
 		}
 
-		when, err := time.Parse(time.RFC3339, label.Cts)
-		if err != nil {
-			when = time.Now().UTC()
-		}
-		whenMillis := when.UnixMilli()
-
-		var info database.Pair
-		if l.rebuildingBound == 0 {
-			info, err = l.db.IncrementCounter(uid, int(kind), rkey, whenMillis)
-			if err != nil {
-				l.log.Warn("failed to increment counter", "kind", kind, "did", did, "err", err)
-				continue
-			}
-		} else {
-			if labels.Seq >= l.rebuildingBound {
-				// done, notify
-				info.Count = 1
-			}
-			if err := l.db.UpdateCounterRec(uid, int(kind), rkey); err != nil {
-				l.log.Warn("failed to update counter", "kind", kind, "uri", label.Uri, "err", err)
-				continue
-			}
-		}
-
-		var notify bool
-		if info.Count == 1 {
-			notify = true
-		} else if info.Count == l.offenderThreshold {
-			info, err = l.db.IncrementCounter(uid, int(LabelOffender), kind.String(), whenMillis)
-			if err != nil {
-				l.log.Warn("failed to increment offender counter", "did", did, "err", err)
-			}
-			notify = true
-			kind = LabelOffender
-		} else {
-			notify = false
-		}
-
-		if notify {
-			l.notifier.Notify(&database.Label{
-				Id:   info.Id,
-				Did:  strings.TrimPrefix(did, "did:"),
-				Kind: int(kind),
-				Cts:  whenMillis,
-			})
-		}
+		l.watcher.CheckAccount(id, info.Did, count)
 	}
 	at_utils.StoreLarger(&l.cursor, labels.Seq)
 	l.counter.Add(1)
@@ -278,10 +229,6 @@ func (l *LabelListener) startPersistSeq(ctx context.Context) {
 func (l *LabelListener) persistSeq() error {
 	cursor := l.cursor.Load()
 	counter := l.counter.Load()
-	if l.rebuildingBound != 0 {
-		l.log.Debug("rebuilding label cursor", "cursor", cursor, "bound", l.rebuildingBound)
-		return nil
-	}
 	l.log.Debug("persisting label cursor", "cursor", cursor, "counter", counter)
 	if err := l.db.SetConfigInt("label-cursor", cursor); err != nil {
 		return err
@@ -310,49 +257,60 @@ func buildLabelMapping(policies *bsky.LabelerDefs_LabelerPolicies) map[string]La
 	return m
 }
 
-func uriToDid(uri string) (string, string, error) {
+type LabelIntention int
+
+const (
+	LabelOnUser LabelIntention = iota
+	LabelOnPost
+	LabelOnProfile
+	LabelUnknown
+)
+
+type LabelExplained struct {
+	Did  string
+	RKey string
+	Kind LabelIntention
+}
+
+func explainLabel(uri string) LabelExplained {
 	u, err := syntax.ParseATURI(uri)
 	if err == nil {
 		rkey := u.RecordKey().String()
 		if rkey == "" {
 			rkey = u.Path()
 		}
-		return u.Authority().String(), rkey, nil
+		did := u.Authority().String()
+		reason := LabelOnPost
+		if u.Collection().String() != "app.bsky.feed.post" {
+			if u.Path() == "" {
+				reason = LabelOnProfile
+			} else {
+				reason = LabelUnknown
+			}
+		}
+		return LabelExplained{
+			Did:  did,
+			RKey: rkey,
+			Kind: reason,
+		}
 	}
 
 	if strings.HasPrefix(uri, "did:") {
 		did, err := syntax.ParseDID(uri)
 		if err != nil {
-			return "", "", err
-		}
-		return did.String(), "actor", nil
-	}
-
-	return "", "", err
-}
-
-func (l *LabelListener) RebuildLabels() error {
-	bound, err := l.db.LatestLabelId()
-	if err != nil {
-		return err
-	}
-	l.rebuildingBound = bound
-	l.cursor.Store(0)
-	l.counter.Store(0)
-	sub := l.Notifier().Subscribe()
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		defer cancel()
-		for {
-			select {
-			case <-sub.done:
-				return
-			case <-sub.out:
-				return
+			return LabelExplained{
+				RKey: uri,
+				Kind: LabelUnknown,
 			}
 		}
-	}()
-	done := l.Run(ctx)
-	<-done
-	return nil
+		return LabelExplained{
+			Did:  did.String(),
+			Kind: LabelOnUser,
+		}
+	}
+
+	return LabelExplained{
+		RKey: uri,
+		Kind: LabelUnknown,
+	}
 }

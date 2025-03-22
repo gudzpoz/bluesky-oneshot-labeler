@@ -22,6 +22,19 @@ func getEnvInt(s string) int {
 	return i
 }
 
+func getEnvFloat(s string) float64 {
+	s = os.Getenv(s)
+	if s == "" {
+		log.Fatalf("Environment variable %s is not set", s)
+		return 0
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		log.Fatalf("Environment variable %s is not a valid float: %v", s, err)
+	}
+	return f
+}
+
 func getEnvList(s string) []string {
 	list := strings.Split(os.Getenv(s), ",")
 	for i := range list {
@@ -43,7 +56,7 @@ var (
 	Host = os.Getenv("HOST")
 	Port = getEnvInt("PORT")
 
-	OffenderThreshold = getEnvInt("OFFENDER_THRESHOLD")
+	OffenderThreshold = getEnvFloat("OFFENDER_THRESHOLD")
 
 	Socks5 = os.Getenv("SOCKS5")
 
