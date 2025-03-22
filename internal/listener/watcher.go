@@ -35,7 +35,7 @@ func NewAccountWatcher(logger *slog.Logger) (*AccountWatcher, error) {
 	db := database.Instance()
 
 	ratio := config.OffendingPostRatio
-	if ratio == 0 || ratio > 1 {
+	if ratio < 0 || ratio > 1 {
 		return nil, fmt.Errorf("invalid offending post ratio: %f", ratio)
 	}
 

@@ -182,7 +182,7 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 
 		info := explainLabel(label.Uri)
 		if info.Kind == LabelUnknown {
-			l.log.Warn("failed to parse label did", "info", info)
+			l.log.Warn("failed to parse label did", "uri", label.Uri)
 			continue
 		}
 
