@@ -56,7 +56,7 @@ var (
 	Host = os.Getenv("HOST")
 	Port = getEnvInt("PORT")
 
-	OffenderThreshold = getEnvFloat("OFFENDER_THRESHOLD")
+	OffendingPostRatio = getEnvFloat("OFFENDING_POST_RATIO")
 
 	Socks5 = os.Getenv("SOCKS5")
 

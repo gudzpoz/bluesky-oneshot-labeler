@@ -20,6 +20,7 @@ type Service struct {
 
 	insertUserStmt       *sql.Stmt
 	incrementCounterStmt *sql.Stmt
+	labeledCountSumStmt  *sql.Stmt
 
 	lastBlockIdStmt   *sql.Stmt
 	userBlockedStmt   *sql.Stmt

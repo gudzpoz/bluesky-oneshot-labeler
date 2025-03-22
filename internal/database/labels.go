@@ -30,6 +30,14 @@ func (s *Service) prepareLabelStatements() error {
 	s.incrementCounterStmt = stmt
 
 	stmt, err = s.rdb.Prepare(
+		"SELECT sum(count) FROM upstream_stats WHERE uid = ?",
+	)
+	if err != nil {
+		return err
+	}
+	s.labeledCountSumStmt = stmt
+
+	stmt, err = s.rdb.Prepare(
 		"SELECT count(*) FROM blocked_user JOIN user ON user.uid = blocked_user.uid WHERE user.did = ?",
 	)
 	if err != nil {
@@ -78,6 +86,12 @@ func (s *Service) IncrementCounter(uid int64, kind int) (int64, int64, error) {
 	var id, count int64
 	err := s.incrementCounterStmt.QueryRow(uid, kind).Scan(&id, &count)
 	return id, count, err
+}
+
+func (s *Service) TotalCounts(uid int64) (int64, error) {
+	var count int64
+	err := s.labeledCountSumStmt.QueryRow(uid).Scan(&count)
+	return count, err
 }
 
 func (s *Service) LastBlockId() (int64, error) {

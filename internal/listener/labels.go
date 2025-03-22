@@ -117,17 +117,16 @@ func NewLabelListener(ctx context.Context, logger *slog.Logger) (*LabelListener,
 }
 
 func (l *LabelListener) Run(ctx context.Context) chan bool {
-	watcherCtx, stopWatcher := context.WithCancel(context.Background())
-	go l.watcher.Listen(watcherCtx)
-
 	done := make(chan bool)
+	watcherCtx, stopWatcher := context.WithCancel(context.Background())
+	go l.watcher.Listen(watcherCtx, done)
+
 	go func() {
 		for {
 			l.log.Info("connecting in 1 second")
 			select {
 			case <-ctx.Done():
 				l.log.Info("context done, label listening stopped")
-				done <- true
 				stopWatcher()
 				return
 			case <-time.After(1 * time.Second):
@@ -280,13 +279,14 @@ func explainLabel(uri string) LabelExplained {
 			rkey = u.Path()
 		}
 		did := u.Authority().String()
-		reason := LabelOnPost
-		if u.Collection().String() != "app.bsky.feed.post" {
-			if u.Path() == "" {
-				reason = LabelOnProfile
-			} else {
-				reason = LabelUnknown
-			}
+		var reason LabelIntention
+		switch u.Collection().String() {
+		case "app.bsky.feed.post":
+			reason = LabelOnPost
+		case "app.bsky.actor.profile":
+			reason = LabelOnProfile
+		default:
+			reason = LabelUnknown
 		}
 		return LabelExplained{
 			Did:  did,
