@@ -2,13 +2,15 @@ package listener
 
 import (
 	"context"
+	"time"
 
 	"github.com/bluesky-social/indigo/api/bsky"
+	"github.com/bluesky-social/jetstream/pkg/models"
 	"github.com/pemistahl/lingua-go"
 	"golang.org/x/text/language"
 )
 
-type feedFilter func(*bsky.FeedPost) bool
+type feedFilter func(post *bsky.FeedPost, event *models.Event) bool
 
 // Customize these to filter out unwanted posts
 var feedFilters = []feedFilter{
@@ -33,6 +35,9 @@ var feedFilters = []feedFilter{
 	Not(ContainsAnyText(
 		"发布了一篇小红书笔记，快来看吧！",
 	)),
+
+	// rate-limits to 1 post per 2 minutes per user, allowing 3 posts per 2 minutes burst
+	RateLimit(3, 2*time.Minute),
 }
 
 // Used by IsLinguaLang

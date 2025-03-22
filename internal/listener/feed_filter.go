@@ -8,31 +8,35 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/bluesky-social/indigo/api/bsky"
 	"github.com/bluesky-social/indigo/lex/util"
+	"github.com/bluesky-social/jetstream/pkg/models"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/pemistahl/lingua-go"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/text/language"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
+	"golang.org/x/time/rate"
 )
 
 func Not(filter feedFilter) feedFilter {
-	return func(post *bsky.FeedPost) bool {
-		return !filter(post)
+	return func(post *bsky.FeedPost, event *models.Event) bool {
+		return !filter(post, event)
 	}
 }
 
-func IsNotComment(post *bsky.FeedPost) bool {
+func IsNotComment(post *bsky.FeedPost, _ *models.Event) bool {
 	return post.Reply == nil
 }
 
 func IsLangs(langs ...language.Tag) feedFilter {
 	matcher := language.NewMatcher(langs)
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		for _, lang := range post.Langs {
 			tag, err := language.Parse(lang)
 			if err != nil {
@@ -47,7 +51,7 @@ func IsLangs(langs ...language.Tag) feedFilter {
 	}
 }
 
-func ExtractTags(post *bsky.FeedPost) bool {
+func ExtractTags(post *bsky.FeedPost, _ *models.Event) bool {
 	for _, facet := range post.Facets {
 		for _, feature := range facet.Features {
 			tag := feature.RichtextFacet_Tag
@@ -74,7 +78,7 @@ func HasAnyTag(tags ...string) feedFilter {
 	for _, tag := range tags {
 		tagSet[normalizeText(tag)] = struct{}{}
 	}
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		for _, t := range post.Tags {
 			t = normalizeText(t)
 			if _, ok := tagSet[t]; ok {
@@ -90,7 +94,7 @@ func HasNoTags(tags ...string) feedFilter {
 }
 
 func MaxTagCount(max int) feedFilter {
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		return len(post.Tags) <= max
 	}
 }
@@ -110,7 +114,7 @@ func HasBadTags(maxHashesInTag int, allowNonTagHashes bool) feedFilter {
 		slog.Error("failed to compile hash regexp", "err", err)
 		allowNonTagHashes = true
 	}
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		for _, tag := range post.Tags {
 			hashes := strings.Count(tag, "#")
 			if hashes > maxHashesInTag {
@@ -134,7 +138,7 @@ func IsLinguaLangs(expected ...lingua.Language) feedFilter {
 		}
 	}
 
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		text := getPostText(post)
 		hasJapanese := false
 		langs := langDetector.DetectMultipleLanguagesOf(text)
@@ -154,7 +158,7 @@ func IsLinguaLangs(expected ...lingua.Language) feedFilter {
 	}
 }
 
-func noop(post *bsky.FeedPost) bool { return true }
+func noop(post *bsky.FeedPost, _ *models.Event) bool { return true }
 
 func ContainsAnyText(texts ...string) feedFilter {
 	if len(texts) == 0 {
@@ -168,8 +172,21 @@ func ContainsAnyText(texts ...string) feedFilter {
 		slog.Error("failed to compile text regexp", "err", err)
 		return noop
 	}
-	return func(post *bsky.FeedPost) bool {
+	return func(post *bsky.FeedPost, _ *models.Event) bool {
 		return matcher.MatchString(post.Text)
+	}
+}
+
+func RateLimit(burst int, every time.Duration) feedFilter {
+	recentUsers, _ := lru.New[string, *rate.Limiter](1024)
+	return func(post *bsky.FeedPost, event *models.Event) bool {
+		did := event.Did
+		limit, ok := recentUsers.Get(did)
+		if !ok {
+			limit = rate.NewLimiter(rate.Every(every), burst)
+			recentUsers.Add(did, limit)
+		}
+		return limit.Allow()
 	}
 }
 
@@ -241,9 +258,9 @@ func NsfwVitFilter(upstream string, nsfwThreshold, minDiff float64, maxConns int
 	}
 }
 
-func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost) bool {
+func (l *JetstreamListener) ShouldKeepFeedItem(post *bsky.FeedPost, event *models.Event) bool {
 	for _, filter := range feedFilters {
-		if !filter(post) {
+		if !filter(post, event) {
 			return false
 		}
 	}

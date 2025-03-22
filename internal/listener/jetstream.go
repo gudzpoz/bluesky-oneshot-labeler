@@ -126,7 +126,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 		return nil
 	}
 
-	if !l.ShouldKeepFeedItem(&post) {
+	if !l.ShouldKeepFeedItem(&post, event) {
 		l.Stats.ItemsBlockedByFilter.Inc()
 		return nil
 	}
