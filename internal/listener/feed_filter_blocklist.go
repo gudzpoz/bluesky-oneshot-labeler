@@ -6,14 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/fsnotify/fsnotify"
 )
 
 type BlockListInSync struct {
-	filter *bloom.BloomFilter
-	list   map[string]struct{}
+	filter atomic.Value
+	list   atomic.Value
 
 	log      *slog.Logger
 	csvPath  string
@@ -27,14 +28,17 @@ func NewBlockListInSync(csvPath string, logger *slog.Logger) (*BlockListInSync, 
 		return nil, err
 	}
 
-	return &BlockListInSync{
-		filter:   bloom.NewWithEstimates(100, 0.01),
-		list:     make(map[string]struct{}),
+	list := &BlockListInSync{
+		filter:   atomic.Value{},
+		list:     atomic.Value{},
 		log:      logger,
 		csvPath:  csvPath,
 		watcher:  watcher,
 		notifier: func() {},
-	}, nil
+	}
+	list.filter.Store(bloom.NewWithEstimates(100, 0.01))
+	list.list.Store(make(map[string]struct{}))
+	return list, nil
 }
 
 func (b *BlockListInSync) SetNotifier(notifier func()) {
@@ -43,10 +47,10 @@ func (b *BlockListInSync) SetNotifier(notifier func()) {
 
 func (b *BlockListInSync) Contains(did string) bool {
 	// b.filter is CoW, so we don't need to lock it.
-	if !b.filter.TestString(did) {
+	if !b.filter.Load().(*bloom.BloomFilter).TestString(did) {
 		return false
 	}
-	_, ok := b.list[did]
+	_, ok := b.list.Load().(map[string]struct{})[did]
 	return ok
 }
 
@@ -89,8 +93,8 @@ func (b *BlockListInSync) update() error {
 		filter.AddString(did)
 	}
 
-	b.filter = filter
-	b.list = list
+	b.filter.Store(filter)
+	b.list.Store(list)
 	b.log.Info("blocklist updated", "count", count)
 	b.notifier()
 	return nil

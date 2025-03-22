@@ -33,7 +33,7 @@ type FeedStats struct {
 }
 
 func (i *SerializableInt64) MarshalJSON() ([]byte, error) {
-	return json.Marshal((*atomic.Int64)(i).Load())
+	return json.Marshal(i.Load())
 }
 func (i *SerializableInt64) Inc() {
 	(*atomic.Int64)(i).Add(1)
