@@ -22,6 +22,8 @@ type Service struct {
 	incrementCounterStmt *sql.Stmt
 	labeledCountSumStmt  *sql.Stmt
 
+	profileLabelPenaltyStmt *sql.Stmt
+
 	lastBlockIdStmt   *sql.Stmt
 	userBlockedStmt   *sql.Stmt
 	getBlockSinceStmt *sql.Stmt

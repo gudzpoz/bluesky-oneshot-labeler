@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -180,16 +181,9 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 
 		info := explainLabel(label.Uri)
-		switch info.Kind {
-		case LabelUnknown:
+		if info.Kind == LabelUnknown {
 			l.log.Warn("failed to parse label did", "info", info)
 			continue
-		case LabelOnProfile:
-			l.log.Warn("ignores label on profile", "user", info.Did)
-			continue
-		case LabelOnPost:
-		case LabelOnUser:
-
 		}
 
 		uid, err := l.db.GetUserId(info.Did)
@@ -197,13 +191,19 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 			l.log.Warn("failed to get user id", "did", info.Did, "err", err)
 			continue
 		}
-
-		count, err := l.db.IncrementCounter(uid, int(kind))
+		var count int64
+		switch info.Kind {
+		case LabelOnPost:
+			count, err = l.db.IncrementCounter(uid, int(kind))
+		case LabelOnProfile:
+			count, err = l.db.MultiplyCounter(uid, int(kind))
+		case LabelOnUser:
+			count = math.MaxInt64
+		}
 		if err != nil {
 			l.log.Warn("failed to increment counter", "kind", kind, "did", info.Did, "err", err)
 			continue
 		}
-
 		l.watcher.CheckAccount(uid, info.Did, count)
 	}
 	at_utils.StoreLarger(&l.cursor, labels.Seq)

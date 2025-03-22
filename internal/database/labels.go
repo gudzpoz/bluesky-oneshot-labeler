@@ -29,6 +29,19 @@ func (s *Service) prepareLabelStatements() error {
 	}
 	s.incrementCounterStmt = stmt
 
+	stmt, err = s.wdb.Prepare(
+		`INSERT INTO upstream_stats (uid, kind, count)
+			VALUES (?, ?, 10)
+		ON CONFLICT (uid, kind) DO UPDATE
+			SET count = count * 2 + 1
+		RETURNING count
+		`,
+	)
+	if err != nil {
+		return err
+	}
+	s.profileLabelPenaltyStmt = stmt
+
 	stmt, err = s.rdb.Prepare(
 		"SELECT sum(count) FROM upstream_stats WHERE uid = ? GROUP BY uid",
 	)
@@ -85,6 +98,12 @@ func (s *Service) GetUserId(did string) (int64, error) {
 func (s *Service) IncrementCounter(uid int64, kind int) (int64, error) {
 	var count int64
 	err := s.incrementCounterStmt.QueryRow(uid, kind).Scan(&count)
+	return count, err
+}
+
+func (s *Service) MultiplyCounter(uid int64, kind int) (int64, error) {
+	var count int64
+	err := s.profileLabelPenaltyStmt.QueryRow(uid, kind).Scan(&count)
 	return count, err
 }
 
