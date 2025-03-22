@@ -54,20 +54,22 @@ func (s *FiberServer) CreateReportHandler(c *fiber.Ctx) error {
 		})
 	}
 
+	var offender syntax.DID
 	uri, err := syntax.ParseATURI(input.Subject.RepoStrongRef.Uri)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(xrpc.XRPCError{
-			ErrStr:  "BadRequest",
-			Message: err.Error(),
-		})
+		if strings.HasPrefix(input.Subject.RepoStrongRef.Uri, "did:") {
+			offender, err = syntax.ParseDID(input.Subject.RepoStrongRef.Uri)
+		}
+	} else {
+		offender, err = uri.Authority().AsDID()
 	}
-	offender, err := uri.Authority().AsDID()
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(xrpc.XRPCError{
 			ErrStr:  "BadRequest",
 			Message: err.Error(),
 		})
 	}
+
 	if strings.Contains(offender.String(), `"`) {
 		return c.Status(fiber.StatusBadRequest).JSON(xrpc.XRPCError{
 			ErrStr:  "BadRequest",
