@@ -3,8 +3,10 @@ package listener
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -93,6 +95,35 @@ func MaxTagCount(max int) feedFilter {
 	}
 }
 
+// So... there are lots of bots (or spammers) that post with tons of invalid tags,
+// which seem to be a good indicator of spam.
+//
+// Specifically, tags like:
+// - "#tag1#tag2#tag3" (as *a single tag*)
+// - "#tag" (as plain text)
+// are common in such posts, and this filter will filter out these.
+func HasBadTags(maxHashesInTag int, allowNonTagHashes bool) feedFilter {
+	// https://github.com/bluesky-social/atproto/blob/main/packages/api/src/rich-text/util.ts
+	chars := `\x{00AD}\x{2060}\x{200A}-\x{200D}\x{20E2}\x{FE0F}`
+	hashRegExp, err := regexp.Compile(fmt.Sprintf(`(^|\s)[#＃]([^\s\x%s]*[^\d\s\p{P}%s]+[^\s%s]*)?`, chars, chars, chars))
+	if err != nil {
+		slog.Error("failed to compile hash regexp", "err", err)
+		allowNonTagHashes = true
+	}
+	return func(post *bsky.FeedPost) bool {
+		for _, tag := range post.Tags {
+			hashes := strings.Count(tag, "#")
+			if hashes > maxHashesInTag {
+				return false
+			}
+		}
+		if allowNonTagHashes || len(post.Tags) != 0 || !strings.Contains(post.Text, "#") {
+			return true
+		}
+		return !hashRegExp.MatchString(post.Text)
+	}
+}
+
 func IsLinguaLangs(expected ...lingua.Language) feedFilter {
 	langSet := make(map[lingua.Language]struct{})
 	wantsChinese := false
@@ -120,6 +151,25 @@ func IsLinguaLangs(expected ...lingua.Language) feedFilter {
 			return hasChinese(text)
 		}
 		return false
+	}
+}
+
+func noop(post *bsky.FeedPost) bool { return true }
+
+func ContainsAnyText(texts ...string) feedFilter {
+	if len(texts) == 0 {
+		return noop
+	}
+	for i, text := range texts {
+		texts[i] = regexp.QuoteMeta(text)
+	}
+	matcher, err := regexp.Compile("(?i)" + strings.Join(texts, "|"))
+	if err != nil {
+		slog.Error("failed to compile text regexp", "err", err)
+		return noop
+	}
+	return func(post *bsky.FeedPost) bool {
+		return matcher.MatchString(post.Text)
 	}
 }
 

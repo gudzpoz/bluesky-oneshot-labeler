@@ -25,6 +25,14 @@ var feedFilters = []feedFilter{
 	MaxTagCount(7),
 	// filter out posts with a certain tag (case-insensitive)
 	HasNoTags("nsfw"),
+	// filter out posts with invalid tags (implying the post is posted by a badly-written bot or
+	// the author does not even bother to format the tags correctly)
+	HasBadTags(2, false),
+
+	// distinctive spam text (please be very specific to avoid false positives)
+	Not(ContainsAnyText(
+		"发布了一篇小红书笔记，快来看吧！",
+	)),
 }
 
 // Used by IsLinguaLang
