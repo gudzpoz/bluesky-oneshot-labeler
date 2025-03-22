@@ -1,6 +1,7 @@
 package listener
 
 import (
+	"bluesky-oneshot-labeler/internal/at_utils"
 	"bluesky-oneshot-labeler/internal/database"
 	"context"
 	"encoding/json"
@@ -68,6 +69,12 @@ func NewJetStreamListener(upstream *LabelListener, blockList *BlockListInSync, l
 		return nil, err
 	}
 
+	cursorUs, err := db.GetConfigInt("sync-time", time.Now().UTC().Add(-1*time.Minute).UnixMicro())
+	if err != nil {
+		return nil, err
+	}
+	syncTime.Store(cursorUs)
+
 	listener := &JetstreamListener{
 		log:         logger,
 		db:          db,
@@ -116,6 +123,7 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	if commit.Operation != "create" || commit.Collection != "app.bsky.feed.post" {
 		return nil
 	}
+	at_utils.StoreLarger(&syncTime, event.TimeUS)
 
 	var post bsky.FeedPost
 	if err := json.Unmarshal(commit.Record, &post); err != nil {
@@ -243,8 +251,7 @@ func (l *JetstreamListener) Run(ctx context.Context) chan bool {
 				cancelPersist()
 				return
 			case <-time.After(1 * time.Second):
-				// TODO: This results in duplicate entries on reconnect/restart.
-				ahead := time.Now().UTC().Add(-1 * time.Minute).UnixMicro()
+				ahead := syncTime.Load() // syncTime initialized in the constructor
 				if err := l.client.ConnectAndRead(ctx, &ahead); err != nil {
 					l.log.Error("jetstream error", "err", err)
 				}

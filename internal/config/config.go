@@ -56,6 +56,8 @@ var (
 	Host = os.Getenv("HOST")
 	Port = getEnvInt("PORT")
 
+	AppViewRateLimit = getEnvInt("APPVIEW_RATE_LIMIT")
+
 	OffendingPostRatio = getEnvFloat("OFFENDING_POST_RATIO")
 
 	Socks5 = os.Getenv("SOCKS5")

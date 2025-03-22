@@ -225,6 +225,11 @@ func (l *LabelListener) startPersistSeq(ctx context.Context) {
 	}
 }
 
+// jetstream last sync time
+//
+// I am just too lazy to implement this again for jetstream
+var syncTime atomic.Int64
+
 func (l *LabelListener) persistSeq() error {
 	cursor := l.cursor.Load()
 	counter := l.counter.Load()
@@ -233,6 +238,9 @@ func (l *LabelListener) persistSeq() error {
 		return err
 	}
 	if err := l.db.SetConfigInt("label-counter", counter); err != nil {
+		return err
+	}
+	if err := l.db.SetConfigInt("sync-time", syncTime.Load()); err != nil {
 		return err
 	}
 	return nil

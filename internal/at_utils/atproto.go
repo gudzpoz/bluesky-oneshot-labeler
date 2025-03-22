@@ -25,6 +25,7 @@ var AtProtoVersion int64 = 1
 var IdentityDirectory = DefaultDirectory()
 var BaseDirectory *identity.BaseDirectory
 var Client *xrpc.Client
+var PubClient *xrpc.Client
 var UserDid syntax.DID
 var KeyP256 *crypto.PrivateKeyP256
 
@@ -57,6 +58,10 @@ func IsRegularFile(path string) bool {
 }
 
 func InitXrpcClient(ctx context.Context) error {
+	PubClient = &xrpc.Client{
+		Host: "https://public.api.bsky.app",
+	}
+
 	if !IsRegularFile(sessionFile) {
 		user := config.UserDid
 		if user == "" {

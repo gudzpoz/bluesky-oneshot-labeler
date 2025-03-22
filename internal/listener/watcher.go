@@ -1,6 +1,7 @@
 package listener
 
 import (
+	"bluesky-oneshot-labeler/internal/at_utils"
 	"bluesky-oneshot-labeler/internal/config"
 	"bluesky-oneshot-labeler/internal/database"
 	"context"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/bluesky-social/indigo/api/bsky"
-	"github.com/bluesky-social/indigo/xrpc"
 	"golang.org/x/time/rate"
 )
 
@@ -25,7 +25,6 @@ type AccountWatcher struct {
 	log *slog.Logger
 
 	queue    chan *upstreamLabel
-	client   *xrpc.Client
 	limiter  *rate.Limiter
 	notifier *BlockNotifier
 
@@ -46,13 +45,10 @@ func NewAccountWatcher(logger *slog.Logger) (*AccountWatcher, error) {
 	}
 
 	w := &AccountWatcher{
-		db:    db,
-		log:   logger.WithGroup("watcher"),
-		queue: make(chan *upstreamLabel, 4096),
-		client: &xrpc.Client{
-			Host: "https://public.api.bsky.app",
-		},
-		limiter:  rate.NewLimiter(10, 20),
+		db:       db,
+		log:      logger.WithGroup("watcher"),
+		queue:    make(chan *upstreamLabel, 4096),
+		limiter:  rate.NewLimiter(rate.Limit(config.AppViewRateLimit), config.AppViewRateLimit*2),
 		notifier: notifier,
 
 		offendingPostRatio: ratio,
@@ -115,7 +111,7 @@ func (w *AccountWatcher) checkBatchWorker(ctx context.Context, labels map[string
 	for _, label := range labels {
 		actors = append(actors, label.Did)
 	}
-	profiles, err := bsky.ActorGetProfiles(ctx, w.client, actors)
+	profiles, err := bsky.ActorGetProfiles(ctx, at_utils.PubClient, actors)
 	if err != nil {
 		w.log.Error("failed to get profiles", "err", err)
 		for _, label := range labels {
