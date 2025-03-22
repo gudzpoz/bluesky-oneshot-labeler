@@ -193,6 +193,10 @@ func (l *LabelListener) HandleEvent(ctx context.Context, event *events.XRPCStrea
 		}
 		var count int64
 		switch info.Kind {
+		case LabelOnList:
+			fallthrough
+		case LabelOnFeed:
+			fallthrough
 		case LabelOnPost:
 			count, err = l.db.IncrementCounter(uid, int(kind))
 		case LabelOnProfile:
@@ -270,6 +274,8 @@ const (
 	LabelOnUser LabelIntention = iota
 	LabelOnPost
 	LabelOnProfile
+	LabelOnList
+	LabelOnFeed
 	LabelUnknown
 )
 
@@ -293,6 +299,10 @@ func explainLabel(uri string) LabelExplained {
 			reason = LabelOnPost
 		case "app.bsky.actor.profile":
 			reason = LabelOnProfile
+		case "app.bsky.graph.list":
+			reason = LabelOnList
+		case "app.bsky.feed.generator":
+			reason = LabelOnFeed
 		default:
 			reason = LabelUnknown
 		}
