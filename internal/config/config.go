@@ -10,12 +10,12 @@ import (
 )
 
 func getEnvInt(s string) int {
-	s = os.Getenv(s)
-	if s == "" {
+	v := os.Getenv(s)
+	if v == "" {
 		log.Fatalf("Environment variable %s is not set", s)
 		return 0
 	}
-	i, err := strconv.Atoi(s)
+	i, err := strconv.Atoi(v)
 	if err != nil {
 		log.Fatalf("Environment variable %s is not a valid integer: %v", s, err)
 	}
@@ -23,12 +23,12 @@ func getEnvInt(s string) int {
 }
 
 func getEnvFloat(s string) float64 {
-	s = os.Getenv(s)
-	if s == "" {
+	v := os.Getenv(s)
+	if v == "" {
 		log.Fatalf("Environment variable %s is not set", s)
 		return 0
 	}
-	f, err := strconv.ParseFloat(s, 64)
+	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		log.Fatalf("Environment variable %s is not a valid float: %v", s, err)
 	}

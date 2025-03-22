@@ -109,7 +109,7 @@ func MaxTagCount(max int) feedFilter {
 func HasBadTags(maxHashesInTag int, allowNonTagHashes bool) feedFilter {
 	// https://github.com/bluesky-social/atproto/blob/main/packages/api/src/rich-text/util.ts
 	chars := `\x{00AD}\x{2060}\x{200A}-\x{200D}\x{20E2}\x{FE0F}`
-	hashRegExp, err := regexp.Compile(fmt.Sprintf(`(^|\s)[#＃]([^\s\x%s]*[^\d\s\p{P}%s]+[^\s%s]*)?`, chars, chars, chars))
+	hashRegExp, err := regexp.Compile(fmt.Sprintf(`(^|\s)[#＃]([^\s%s]*[^\d\s\p{P}%s]+[^\s%s]*)?`, chars, chars, chars))
 	if err != nil {
 		slog.Error("failed to compile hash regexp", "err", err)
 		allowNonTagHashes = true

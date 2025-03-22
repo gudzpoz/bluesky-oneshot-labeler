@@ -197,8 +197,10 @@ func (s *Service) upgrade() error {
 			`ALTER TABLE upstream_stats DROP COLUMN posts`,
 			`DELETE FROM upstream_stats WHERE kind = 5`, // "offender" category
 			`CREATE TABLE blocked_user (id integer PRIMARY KEY, uid integer not null)`,
-			`VACUUM`,
 		); err != nil {
+			return err
+		}
+		if _, err := s.wdb.Exec("VACUUM"); err != nil {
 			return err
 		}
 		s.log.Info("Upgraded database to version", "version", dbVersion)

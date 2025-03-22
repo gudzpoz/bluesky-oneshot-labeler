@@ -54,7 +54,7 @@ func (s *Service) prepareLabelStatements() error {
 	s.lastBlockIdStmt = stmt
 
 	stmt, err = s.rdb.Prepare(
-		"SELECT blocked_user.id, user.did FROM blocked_user JOIN user ON user.uid = blocked_user.uid WHERE b.id > ? AND b.id <= ?",
+		"SELECT b.id, u.did FROM blocked_user b JOIN user u ON u.uid = b.uid WHERE b.id > ? AND b.id <= ?",
 	)
 	if err != nil {
 		return err
