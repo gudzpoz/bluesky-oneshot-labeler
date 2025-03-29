@@ -15,6 +15,7 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/bluesky-social/indigo/api/bsky"
+	"github.com/bluesky-social/indigo/atproto/syntax"
 	"github.com/bluesky-social/jetstream/pkg/client"
 	"github.com/bluesky-social/jetstream/pkg/client/schedulers/parallel"
 	"github.com/bluesky-social/jetstream/pkg/models"
@@ -145,13 +146,25 @@ func (l *JetstreamListener) HandleEvent(ctx context.Context, event *models.Event
 	}
 	blockList := l.InBlockList(compactDid)
 	if blockList != OutOfBlockList {
-		switch blockList {
-		case BlockListDb:
-			l.Stats.ItemsBlockedByDb.Inc()
-		case BlockListCsv:
-			l.Stats.ItemsBlockedByCsv.Inc()
-		}
+		l.incStats(blockList)
 		return nil
+	}
+	if post.Embed != nil {
+		record := post.Embed.EmbedRecord
+		if record == nil && post.Embed.EmbedRecordWithMedia != nil {
+			record = post.Embed.EmbedRecordWithMedia.Record
+		}
+		if record != nil {
+			uri, err := syntax.ParseATURI(record.Record.Uri)
+			if err == nil {
+				embedDid := strings.TrimPrefix(uri.Authority().String(), "did:")
+				blockList = l.InBlockList(embedDid)
+				if blockList != OutOfBlockList {
+					l.incStats(blockList)
+					return nil
+				}
+			}
+		}
 	}
 
 	if !l.ShouldKeepFeedItemCostly(ctx, &post, did) {
@@ -331,4 +344,13 @@ func (l *JetstreamListener) InBlockList(did string) int {
 		return BlockListDb
 	}
 	return OutOfBlockList
+}
+
+func (l *JetstreamListener) incStats(inBlockList int) {
+	switch inBlockList {
+	case BlockListDb:
+		l.Stats.ItemsBlockedByDb.Inc()
+	case BlockListCsv:
+		l.Stats.ItemsBlockedByCsv.Inc()
+	}
 }
