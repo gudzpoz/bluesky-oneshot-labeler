@@ -33,6 +33,7 @@ type Service struct {
 	getFeedItemsStmt      *sql.Stmt
 	scanFirstRecentIdStmt *sql.Stmt
 	pruneFeedEntriesStmt  *sql.Stmt
+	deleteOneFeedItemStmt *sql.Stmt
 	incrementalVacuumStmt *sql.Stmt
 }
 

@@ -42,6 +42,14 @@ func (s *Service) prepareFeedStatements() error {
 	s.pruneFeedEntriesStmt = stmt
 
 	stmt, err = s.wdb.Prepare(
+		"DELETE FROM feed_list WHERE uri = ? LIMIT 1",
+	)
+	if err != nil {
+		return err
+	}
+	s.deleteOneFeedItemStmt = stmt
+
+	stmt, err = s.wdb.Prepare(
 		"PRAGMA incremental_vacuum",
 	)
 	if err != nil {
@@ -54,6 +62,11 @@ func (s *Service) prepareFeedStatements() error {
 
 func (s *Service) InsertFeedItem(uri string) error {
 	_, err := s.insertFeedItemStmt.Exec(uri, time.Now().UTC().UnixMilli())
+	return err
+}
+
+func (s *Service) DeleteFeedItem(uri string) error {
+	_, err := s.deleteOneFeedItemStmt.Exec(uri)
 	return err
 }
 

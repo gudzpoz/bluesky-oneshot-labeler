@@ -77,7 +77,17 @@ func (s *FiberServer) CreateReportHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	go s.writeToBlockListCsv(offender.String(), input.ReasonType, input.Reason)
+	if uri != "" && input.Reason != nil && strings.TrimSpace(*input.Reason) == "del" {
+		compactUri := uri.Authority().String() + "/" + uri.RecordKey().String()
+		if err := s.db.DeleteFeedItem(compactUri); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(xrpc.XRPCError{
+				ErrStr:  "InternalError",
+				Message: err.Error(),
+			})
+		}
+	} else {
+		go s.writeToBlockListCsv(offender.String(), input.ReasonType, input.Reason)
+	}
 
 	return c.JSON(&atproto.ModerationCreateReport_Output{
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
