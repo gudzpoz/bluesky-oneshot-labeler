@@ -42,7 +42,9 @@ func (s *Service) prepareFeedStatements() error {
 	s.pruneFeedEntriesStmt = stmt
 
 	stmt, err = s.wdb.Prepare(
-		"DELETE FROM feed_list WHERE uri = ? LIMIT 1",
+		`DELETE FROM feed_list WHERE id IN (
+			SELECT id FROM feed_list WHERE uri = ? LIMIT 1
+		)`,
 	)
 	if err != nil {
 		return err
